@@ -1,0 +1,23 @@
+{
+  "skill_name": "grafana-wall",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "put this project on the grafana wall. it's my kalshi trading bot - make sure the square dedicates a big chunk of space to an all-time earnings line chart, and show the status of the kalshi api and the ec2 box it runs on",
+      "expected_output": "Tile with name/status/branch/activity top bar, health chips for Kalshi API and EC2, a line chart with span all on an earnings series, layout.chart_min_h >= 6; no invented P&L numbers; user told how earnings gets pushed.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "add this to the wall",
+      "expected_output": "Minimal tile from repo facts only (name, status, branch, activity) plus modules supported by real signals; no fabricated charts or stats; claims the next vacant slot.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "refresh my tile - tests are failing now and the postgres connection is down. also free up slot 5, i'm done with that one",
+      "expected_output": "Re-snapshots this project in its existing slot with status warn/fail, tests with failures, Postgres health down; releases slot 5 only because the user asked explicitly.",
+      "files": []
+    }
+  ]
+}

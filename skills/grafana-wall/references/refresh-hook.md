@@ -1,0 +1,53 @@
+# Automatic refresh and the refresh hook
+
+A snapshot is a picture. To keep a tile true without anyone re-running the skill, projects are **registered** and a scheduled task (`GrafanaWallRefresh`, every 2 minutes) runs `scripts/wall-refresh.ps1`.
+
+## What refresh does for free (no hook needed)
+For each registered project it starts from `<project>/.grafana-wall/tile.json` and updates:
+- **branch**: `git branch --show-current`.
+- **activity**: `active` if anything happened in the last 15 minutes (a commit, an edited uncommitted file, or a Claude Code session transcript for that folder), else `idle`. The label is deliberately coarse (`now`, `<1h`, `1h+`, `3h+`, `12h+`, `Nd+`) so the tile does not change every minute.
+
+Everything else (status, task, tests, health, stats, live series) stays as the skill last wrote it unless the project has a hook.
+
+## Redraw only when something visible changed
+Every redraw makes the wall's Chrome window for that monitor reload (a ~2 s blink). Refresh therefore hashes the visible tile and calls `snapshot` only when it differs from last time, or when the tile has gone missing from the wall. If only chart numbers moved, it pushes them with `series` (no redraw, no blink). Keep that in mind when writing a hook: do not put things that change every run (timestamps, counters in text) into `task`, `stats` or `health`; put numbers that should move continuously into `series`.
+
+## The hook: `<project>/.grafana-wall/refresh.ps1`
+Optional. Runs in its own hidden PowerShell with the project as working directory and a **60 s timeout**. It must print **one JSON object to stdout** and exit 0. Any of these keys are merged into the tile (others are ignored):
+
+| Key | Meaning |
+|---|---|
+| `status`, `status_label` | `ok`/`warn`/`fail`/`idle`/`building`, optional pill text |
+| `task` | current objective text |
+| `tests` | `{passed, failed, skipped?}` |
+| `health` | list of `{name, state}`; replaces the tile's list |
+| `stats` | list of `{label, value, trend?}`; replaces the tile's list |
+| `series` | `{name: number}` current values for the charts |
+| `activity` | `{state}` only: lets the hook say `stalled` (should be running but is not). Label stays automatic. |
+
+If the hook fails, times out or prints invalid JSON, refresh logs it (`~/.grafana-wall/refresh.log`) and keeps the last known facts for that project, so a broken hook never blanks a tile.
+
+### Rules for hooks
+- **Read-only and cheap**: they run every 2 minutes forever. HTTP GETs to health endpoints, `aws ... describe-*`, reading a results file or running a quick read-only database query are fine. Nothing that trades, writes, spends money, or approaches an API rate limit.
+- **No secrets in output**; it ends up on a TV.
+- Compute health from a real check, never a constant. If a check cannot run, emit `unknown`.
+- Prefer reading what the project already records (a ledger, a metrics file, the last test report) over re-deriving it.
+
+### Minimal example
+```powershell
+# .grafana-wall/refresh.ps1
+$up = try { (Invoke-WebRequest https://api.example.com/status -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200 } catch { $false }
+$pnl = (Get-Content "$PSScriptRoot\..\data\pnl.txt" -ErrorAction SilentlyContinue) -as [double]
+@{
+  status = if ($up) { 'ok' } else { 'fail' }
+  health = @(@{ name = 'Example API'; state = if ($up) { 'up' } else { 'down' } })
+  series = @{ earnings = $pnl }
+} | ConvertTo-Json -Depth 5 -Compress
+```
+
+## Setup (once per machine, then once per project)
+1. `scripts/Install-Refresh.ps1` creates the scheduled task (per-user, no admin). Check first: `Get-ScheduledTask GrafanaWallRefresh`.
+2. In each project, after the first successful snapshot: `wall.ps1 register` (run from the project folder). `wall.ps1 projects` lists them, `wall.ps1 unregister -Project slug` stops auto-refresh, and `wall.ps1 release -Slot N` does both release and unregister.
+3. `wall.ps1 refresh` runs a refresh immediately.
+
+The wall's kiosk windows reload themselves when a dashboard is redrawn (the supervisor watches the dashboard version), so a redraw appears on the monitor within about 10 seconds.

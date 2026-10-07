@@ -1,0 +1,10 @@
+{
+  "chromePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "restartDaily": "04:00",
+  "contentHeight": 1012,
+  "monitors": [
+    { "name": "top",    "display": "\\\\.\\DISPLAY6", "url": "http://GRAFANA_HOST:3000/d/wall-top?kiosk&refresh=30s&theme=dark&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks&hideLogo=true" },
+    { "name": "middle", "display": "\\\\.\\DISPLAY5", "url": "http://GRAFANA_HOST:3000/d/wall-middle?kiosk&refresh=30s&theme=dark&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks&hideLogo=true" },
+    { "name": "bottom", "display": "\\\\.\\DISPLAY7", "url": "http://GRAFANA_HOST:3000/d/wall-bottom?kiosk&refresh=30s&theme=dark&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks&hideLogo=true" }
+  ]
+}
