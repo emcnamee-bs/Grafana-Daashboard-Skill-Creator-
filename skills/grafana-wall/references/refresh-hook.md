@@ -30,6 +30,9 @@ If the hook fails, times out or prints invalid JSON, refresh logs it (`~/.grafan
 ### Rules for hooks
 - **Read-only and cheap**: they run every 2 minutes forever. HTTP GETs to health endpoints, `aws ... describe-*`, reading a results file or running a quick read-only database query are fine. Nothing that trades, writes, spends money, or approaches an API rate limit.
 - **No secrets in output**; it ends up on a TV.
+- **Fail loudly, never publish guesses.** `$ErrorActionPreference = 'Stop'` does not stop on a native command's exit code: check `$LASTEXITCODE` after every `gh`/`aws`/`curl`, and `throw` (or `exit 1`) when a call fails or returns nothing. A hook that swallows an error and prints empty-looking JSON replaces real facts on the wall with false ones (e.g. "0 open PRs"); a non-zero exit makes refresh keep the last known facts.
+- **Never name a helper function after the command it wraps** (`function Gh` calling `& gh`, `function Git` calling `& git`): PowerShell is case-insensitive, so the function calls itself until "call depth overflow". Use `Invoke-GhJson`, `Invoke-GitIn`, etc.
+- Pass `gh --json` fields as one string with no spaces (`'number,title'`); in an array splat they become separate arguments and `gh` rejects them.
 - Compute health from a real check, never a constant. If a check cannot run, emit `unknown`.
 - Prefer reading what the project already records (a ledger, a metrics file, the last test report) over re-deriving it.
 
