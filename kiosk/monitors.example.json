@@ -3,8 +3,8 @@
   "restartDaily": "04:00",
   "contentHeight": 1012,
   "monitors": [
-    { "name": "top",    "display": "\\\\.\\DISPLAY6", "url": "http://GRAFANA_HOST:3000/d/wall-top?kiosk&refresh=30s&theme=dark&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks&hideLogo=true" },
-    { "name": "middle", "display": "\\\\.\\DISPLAY5", "url": "http://GRAFANA_HOST:3000/d/wall-middle?kiosk&refresh=30s&theme=dark&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks&hideLogo=true" },
-    { "name": "bottom", "display": "\\\\.\\DISPLAY7", "url": "http://GRAFANA_HOST:3000/d/wall-bottom?kiosk&refresh=30s&theme=dark&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks&hideLogo=true" }
+    { "name": "top",    "display": "\\\\.\\DISPLAY6", "url": "http://WALL_HOST:8088/wall/wall-top?w=95" },
+    { "name": "middle", "display": "\\\\.\\DISPLAY5", "url": "http://WALL_HOST:8088/wall/wall-middle?w=95" },
+    { "name": "bottom", "display": "\\\\.\\DISPLAY7", "url": "http://WALL_HOST:8088/wall/wall-bottom?w=95" }
   ]
 }

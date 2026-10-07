@@ -19,7 +19,7 @@ CONFIG = {
     "datasource_uid": "prometheus",
     "dashboards": [("wall-top", 1, 6), ("wall-middle", 7, 12), ("wall-bottom", 13, 18)],  # (uid, first, last)
     "cols": 3, "panel_w": 8, "panel_h": 13,   # grid units per slot (24 wide / 3 cols)
-    "header_h": 3,                            # units used by the fixed top bar inside the info card
+    "header_h": 4,                            # units used by the fixed top bar inside the info card (name box + branch/activity chips)
     "min_chart_h": 4,                         # default floor for the chart region when charts exist
     "num_size_px": 43, "num_color": "#1f3a5f", "vacant_size_px": 14, "vacant_color": "#3b4f6b",
     "border": "1px solid #1f5fae", "radius": "8px", "glow": "inset 0 0 18px rgba(31,95,174,.25)",
@@ -177,76 +177,111 @@ def plan(sp):
     return blocks, hdr + sum(blocks.values())
 
 
-def info_html(sp, blocks, roomy=False):
+def info_html(sp, blocks, roomy=False, framed=False):
+    """The info card. Every 'thing' (name+status, branch, activity, task, tests, each health dot, each stat) sits in its own bordered box.
+    Grafana's sanitizer drops several CSS properties (flex:1, zoom, and apparently white-space/overflow), so: sizes are explicit,
+    text is truncated here instead of with CSS, and the card fits its panel exactly (no negative-margin tricks: at a fractional display
+    scale they overflow by a sub-pixel and the panel grows scrollbars)."""
     c = CONFIG
     sc = c["status_colors"][sp["status"]]
     label = esc((sp["status_label"] or sp["status"]).upper())
     ac = c["activity_colors"][sp["activity"]["state"]]
-    alab = esc(sp["activity"]["state"] + (" · " + sp["activity"]["label"] if sp["activity"]["label"] else ""))
-    chip = "display:inline-block;padding:3px 10px;border-radius:12px;background:rgba(77,163,255,.10);border:1px solid rgba(77,163,255,.25);"
-    # negative margin: grow the card over the panel's own 8px padding so it lines up flush with the chart panels below it
-    parts = ["<div style='box-sizing:border-box;margin:-8px;height:calc(100%% + 16px);padding:14px 18px;border:%s;border-radius:%s;box-shadow:%s;background:%s;"
-             "display:flex;flex-direction:column;justify-content:space-between;font-family:Inter,sans-serif;color:%s;overflow:hidden'>"
-             % (c["border"], c["radius"], c["glow"], c["card_bg"], c["text"])]
-    parts.append("<div><div style='display:flex;align-items:center;justify-content:space-between;gap:10px'>"
-                 "<div style='font-size:30px;font-weight:700;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>%s</div>"
-                 "<div style='flex:none;padding:4px 14px;border-radius:14px;background:%s;color:#fff;font-size:15px;font-weight:700;letter-spacing:.12em'>%s</div></div>"
-                 "<div style='margin-top:6px;font-size:14px;color:%s;display:flex;gap:8px;flex-wrap:wrap'>"
-                 "<span style='%s'>&#9095; %s</span>"
-                 "<span style='%s'><span style='color:%s'>&#9679;</span> %s</span></div></div>"
-                 % (esc(sp["name"]), sc, label, c["muted"], chip, esc(sp["branch"]), chip, ac, alab))
-    k = 1.35 if roomy else 1.0      # roomy = no charts, so the card is the whole tile: bigger type and more air
+    alab = esc(sp["activity"]["state"] + (" \u00b7 " + sp["activity"]["label"] if sp["activity"]["label"] else ""))
+    k = 1.25 if roomy else 1.0
     S = lambda n: int(round(n * k))
+    line = "1px solid #1f5fae"
+    def box(inner, extra=""):
+        return ("<div style='box-sizing:border-box;border:%s;border-radius:8px;background:rgba(31,95,174,.10);padding:%dpx %dpx;%s'>%s</div>"
+                % (line, S(6), S(10), extra, inner))
+    chip = "display:inline-block;padding:3px 10px;border-radius:12px;background:rgba(77,163,255,.10);border:1px solid rgba(77,163,255,.35);"
+    # framed = a chart panel sits below, so this panel keeps Grafana's own chrome (same edges as the chart panels) and the card adds none
+    outer = "border:0;" if framed else "border:%s;border-radius:%s;box-shadow:%s;" % (c["border"], c["radius"], c["glow"])
+    parts = ["<div style='box-sizing:border-box;height:100%%;padding:12px 14px;%sbackground:%s;"
+             "display:flex;flex-direction:column;justify-content:space-between;font-family:Inter,sans-serif;color:%s;overflow:hidden'>"
+             % (outer, c["card_bg"], c["text"])]
+    name = esc(sp["name"][:22])
+    parts.append("<div>" + box(
+        "<div style='display:flex;align-items:center;justify-content:space-between;gap:10px'>"
+        "<div style='font-size:%dpx;font-weight:700;letter-spacing:.02em'>%s</div>"
+        "<div style='padding:4px 14px;border-radius:14px;background:%s;color:#fff;font-size:%dpx;font-weight:700;letter-spacing:.12em'>%s</div></div>"
+        % (S(26), name, sc, S(14), label)) +
+        "<div style='margin-top:6px;font-size:%dpx;color:%s;display:flex;gap:8px'><span style='%s'>&#9095; %s</span>"
+        "<span style='%s'><span style='color:%s'>&#9679;</span> %s</span></div></div>"
+        % (S(14), c["muted"], chip, esc(sp["branch"][:24]), chip, ac, alab))
     body = []
     if "task" in blocks:
-        body.append("<div style='font-size:%dpx;color:%s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"
-                    "<span style='color:%s;letter-spacing:.12em;font-size:%dpx'>NOW</span>&nbsp; %s</div>" % (S(15), c["text"], c["muted"], S(12), esc(sp["task"])))
+        t = sp["task"]; lim = 40 if roomy else 56
+        if len(t) > lim:
+            t = t[:lim - 1].rstrip() + "\u2026"
+        body.append(box("<span style='color:%s;letter-spacing:.12em;font-size:%dpx'>NOW</span>&nbsp; <span style='font-size:%dpx'>%s</span>"
+                        % (c["muted"], S(12), S(15), esc(t))))
     if "tests" in blocks:
         t = sp["tests"]; tot = max(t["passed"] + t["failed"] + t["skipped"], 1)
         pw, fw = 100.0 * t["passed"] / tot, 100.0 * t["failed"] / tot
-        body.append("<div style='font-size:%dpx;color:%s'><div style='display:flex;justify-content:space-between'><span style='letter-spacing:.12em;font-size:%dpx'>%s</span>"
-                    "<span style='color:%s'>%d passed%s</span></div><div style='height:%dpx;border-radius:4px;background:#1a2640;margin-top:4px;display:flex;overflow:hidden'>"
-                    "<div style='width:%.1f%%;background:#3fb950'></div><div style='width:%.1f%%;background:#f85149'></div></div></div>"
-                    % (S(13), c["muted"], S(12), esc((t["label"] or "TESTS").upper()), c["text"], t["passed"], (" &middot; <span style='color:#f85149'>%d failed</span>" % t["failed"]) if t["failed"] else "", S(7), pw, fw))
+        body.append(box("<div style='font-size:%dpx;color:%s;display:flex;justify-content:space-between'><span style='letter-spacing:.12em;font-size:%dpx'>%s</span>"
+                        "<span style='color:%s'>%d passed%s</span></div><div style='height:%dpx;border-radius:4px;background:#1a2640;margin-top:4px;display:flex;overflow:hidden'>"
+                        "<div style='width:%.1f%%;background:#3fb950'></div><div style='width:%.1f%%;background:#f85149'></div></div>"
+                        % (S(13), c["muted"], S(12), esc((t["label"] or "TESTS").upper()), c["text"], t["passed"],
+                           (" &middot; <span style='color:#f85149'>%d failed</span>" % t["failed"]) if t["failed"] else "", S(7), pw, fw)))
     if "health" in blocks:
-        chips = "".join("<span style='display:inline-block;margin:0 %dpx 4px 0;font-size:%dpx'><span style='color:%s'>&#9679;</span> %s</span>"
-                        % (S(12), S(14), c["health_colors"][h["state"]], esc(h["name"])) for h in sp["health"])
-        body.append("<div style='line-height:1.35'>%s</div>" % chips)
+        pills = "".join("<span style='display:inline-block;margin:0 6px 6px 0;padding:%dpx %dpx;border:%s;border-radius:8px;background:rgba(31,95,174,.10);font-size:%dpx'>"
+                        "<span style='color:%s'>&#9679;</span> %s</span>" % (S(3), S(9), line, S(14), c["health_colors"][h["state"]], esc(h["name"])) for h in sp["health"])
+        body.append("<div>%s</div>" % pills)
     if "stats" in blocks:
-        cells = []
+        n = len(sp["stats"]); cells = []
         for s in sp["stats"]:
-            arrow = {"up": "<span style='color:#3fb950'>&#9650;</span>", "down": "<span style='color:#f85149'>&#9660;</span>", "flat": ""}.get(s["trend"], "")
-            cells.append("<div style='flex:1;min-width:0'><div style='font-size:%dpx;font-weight:700;white-space:nowrap'>%s %s</div>"
-                         "<div style='font-size:%dpx;letter-spacing:.1em;color:%s'>%s</div></div>" % (S(26), esc(s["value"]), arrow, S(11), c["muted"], esc(s["label"].upper())))
-        body.append("<div style='display:flex;gap:10px'>%s</div>" % "".join(cells))
-    # (Grafana's sanitizer drops flex:1 / zoom, so the body can't be told to grow; auto margins centre it in the free space instead)
-    style = "margin:auto 0;display:flex;flex-direction:column;gap:26px;" if roomy else "display:flex;flex-direction:column;gap:8px;"
-    parts.append("<div style='%s'>%s</div>" % (style, "".join(body)) if body else "")
+            arrow = {"up": " <span style='color:#3fb950'>&#9650;</span>", "down": " <span style='color:#f85149'>&#9660;</span>", "flat": ""}.get(s["trend"], "")
+            cells.append(box("<div style='font-size:%dpx;font-weight:700'>%s%s</div><div style='font-size:%dpx;letter-spacing:.1em;color:%s'>%s</div>"
+                             % (S(24), esc(s["value"]), arrow, S(11), c["muted"], esc(s["label"].upper())),
+                             "width:calc((100%% - %dpx) / %d);" % (8 * (n - 1), n)))
+        body.append("<div style='display:flex;gap:8px'>%s</div>" % "".join(cells))
+    style = "margin:auto 0;display:flex;flex-direction:column;gap:%dpx;" % (14 if roomy else 8)
+    if body:
+        parts.append("<div style='%s'>%s</div>" % (style, "".join(body)))
     parts.append("</div>")
     return "".join(parts)
 
 
-def all_span(project, series):
-    """'all' = since the series' first sample (a fixed 5y range makes Grafana's query step days wide, so young data vanishes)."""
-    try:
-        q = urllib.parse.urlencode({"query": 'wall_series{project="%s",series="%s"}' % (project, series),
-                                    "start": int(time.time()) - 5 * 365 * 86400, "end": int(time.time()), "step": 86400})
-        with urllib.request.urlopen(CONFIG["prometheus_url"] + "/api/v1/query_range?" + q, timeout=8) as r:
-            res = json.loads(r.read())["data"]["result"]
-        first = min(float(v[0]) for s in res for v in s["values"])
-        age = max(time.time() - first, 0)
-    except Exception:
-        return "6h"
-    hours = int(age // 3600) + 2
-    return "%dh" % min(hours, 24 * 14) if hours <= 24 * 14 else "%dd" % min(int(hours // 24) + 1, 1825)
+def first_sample_age(project, series):
+    """Seconds since this series' first Prometheus sample, or None. Tiered subqueries (fine resolution first) because a fixed 5y range
+    makes Grafana's query step days wide, so young data would fall between steps and the chart would say 'No data'."""
+    sel = 'wall_series{project="%s",series="%s"}' % (project, series)       # both validated: no quotes possible
+    for rng_s, rng, step_s, step in ((3600, "1h", 15, "15s"), (172800, "2d", 60, "1m"), (7776000, "90d", 900, "15m"), (157680000, "5y", 21600, "6h")):
+        try:
+            q = urllib.parse.urlencode({"query": "min_over_time(timestamp(%s)[%s:%s])" % (sel, rng, step)})
+            with urllib.request.urlopen(CONFIG["prometheus_url"] + "/api/v1/query?" + q, timeout=8) as r:
+                res = json.loads(r.read())["data"]["result"]
+        except Exception:
+            return None
+        if res:
+            age = max(time.time() - float(res[0]["value"][1]), 0)
+            if age < rng_s - 2 * step_s:          # the window was not saturated, so this really is the first sample
+                return age
+    return None
+
+
+def span_text(seconds):
+    if seconds < 2 * 3600:
+        return "%dm" % max(15, int(seconds // 60) + 5)
+    if seconds < 3 * 86400:
+        return "%dh" % (int(seconds // 3600) + 2)
+    return "%dd" % min(int(seconds // 86400) + 1, 1825)
+
+
+SPAN_SECONDS = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000, "90d": 7776000}
 
 
 def chart_panel(ch, sp, pid, gp, tag):
     c = CONFIG
     expr = 'wall_series{project="%s",series="%s"}' % (sp["project"], ch["series"])   # both validated: no quotes possible
-    span = all_span(sp["project"], ch["series"]) if ch["span"] == "all" else c["span_map"][ch["span"]]
+    if ch["span"] == "all":
+        age = first_sample_age(sp["project"], ch["series"])
+        span, max_pts = span_text(age if age is not None else 3600), 600
+    else:
+        span = c["span_map"][ch["span"]]
+        max_pts = min(10000, max(300, SPAN_SECONDS[ch["span"]] // 30))        # ~30s step up to a week, so a few minutes of history already draws
     # no description here (it adds an info icon that eats the title); ownership comes from the panel id range instead
-    base = {"id": pid, "title": ch["title"], "gridPos": gp, "transparent": False, "hideTimeOverride": True, "maxDataPoints": 600,
+    base = {"id": pid, "title": ch["title"], "gridPos": gp, "transparent": False, "hideTimeOverride": True, "maxDataPoints": max_pts,
             "datasource": {"type": "prometheus", "uid": c["datasource_uid"]}, "timeFrom": span,
             "targets": [{"refId": "A", "expr": expr, "legendFormat": ch["title"], "datasource": {"type": "prometheus", "uid": c["datasource_uid"]}}]}
     color = {"mode": "fixed", "fixedColor": c["accent"]}
@@ -270,8 +305,10 @@ def render_tile(slot, idx, sp):
     base_id = 1000 + slot * 10
     tag = "wall:s%02d:%s" % (slot, sp["project"])
     blocks, info_h = plan(sp)
-    panels = [{"id": base_id, "type": "text", "title": "", "transparent": True, "description": tag,
-               "gridPos": {"x": ox, "y": oy, "w": W, "h": info_h}, "options": {"mode": "html", "content": info_html(sp, blocks, roomy=not sp["charts"])}}]
+    has_charts = bool(sp["charts"])
+    panels = [{"id": base_id, "type": "text", "title": "", "transparent": not has_charts, "description": tag,
+               "gridPos": {"x": ox, "y": oy, "w": W, "h": info_h},
+               "options": {"mode": "html", "content": info_html(sp, blocks, roomy=not has_charts, framed=has_charts)}}]
     charts, ch_h = sp["charts"], H - info_h
     if charts and ch_h > 0:
         rows = [charts[:2], charts[2:4]] if (len(charts) > 2 and ch_h >= 4) else [charts[:2]]
@@ -409,6 +446,23 @@ def series_only(raw):
     return {"pushed": len(ser)}
 
 
+WALL_QS = "kiosk&refresh=30s&theme=dark&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks&hideLogo=true"
+
+
+def wall_page(uid, width_pct):
+    """Kiosk wrapper: the dashboard in a centred frame `width_pct`% wide on the same dark background, so TV overscan can't clip
+    the edges (a kiosk Chrome window snaps back to full-monitor size when resized, so the margin has to live in the page).
+    The page also polls the dashboard's saved version and reloads only the frame when it changes (no window restart)."""
+    return ("<!doctype html><meta charset=utf-8><title>wall</title><style>html,body{margin:0;height:100%%;background:#111217;overflow:hidden}"
+            "iframe{position:absolute;top:0;bottom:0;left:50%%;width:%d%%;height:100%%;transform:translateX(-50%%);border:0}</style>"
+            "<iframe id=f></iframe><script>"
+            "var f=document.getElementById('f'),v=null;"
+            "f.src=location.protocol+'//'+location.hostname+':3000/d/%s?%s';"
+            "function tick(){fetch('/wall/%s/version',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){"
+            "if(v!==null&&j.version!==v){f.src=f.src}v=j.version}).catch(function(){}).then(function(){setTimeout(tick,5000)})}tick();"
+            "</script>") % (width_pct, uid, WALL_QS, uid)
+
+
 class Conflict(Exception):
     def __init__(self, body): self.body = body
 
@@ -437,8 +491,21 @@ class H(BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         path = path.rstrip("/") or "/"
         try:
-            if method == "GET" and path == "/health":
+            if method == "GET" and path in ("/health", "/api/health"):    # /api/health lets the kiosk supervisor treat this port like Grafana
                 return self._send(200, {"ok": True})
+            m = re.fullmatch(r"/wall/([a-z0-9-]+)(/version)?", path)       # unauthenticated: static page + a version number, nothing sensitive
+            if method == "GET" and m:
+                uid = m.group(1)
+                if uid not in [d[0] for d in CONFIG["dashboards"]]:
+                    return self._send(404, {"error": "unknown wall dashboard"})
+                if m.group(2):
+                    return self._send(200, {"version": grafana("GET", "/api/dashboards/uid/" + uid)["dashboard"].get("version")})
+                w = re.search(r"(?:^|&)w=(\d{2,3})(?:&|$)", query)
+                pct = min(max(int(w.group(1)), 50), 100) if w else 95
+                b = wall_page(uid, pct).encode()
+                self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(b))); self.end_headers()
+                return self.wfile.write(b)
             if not self._authed():
                 return
             if method == "GET" and path == "/slots":

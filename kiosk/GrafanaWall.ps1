@@ -95,7 +95,7 @@ function Start-Dash($m, $cfg) {
     '--disable-features=Translate,CalculateNativeWinOcclusion',
     '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling'
   )
-  if (-not $inset) { $args += '--kiosk' }
+  $args += '--kiosk'   # always borderless; an inset is applied afterwards by resizing the window (a non-kiosk --app window would show a title bar)
   $ver = Get-DashVersion $m.url      # read before launching so a save during startup still triggers a reload
   $p = Start-Process -FilePath $cfg.chromePath -ArgumentList $args -PassThru
   # wait for window, then pin to the monitor
@@ -110,7 +110,7 @@ function Start-Dash($m, $cfg) {
     [void][W32]::SetWindowPos($h, [IntPtr]::Zero, $rx, $ry, $rw, $rh, 0x0044) # NOZORDER|SHOWWINDOW
   }
   Write-Log "[$($m.name)] started pid $($p.Id) on $($m.display) -> $($m.url)"
-  [pscustomobject]@{ Proc = $p; Hwnd = $h; Bounds = $b; Url = $m.url; Display = $m.display; Backoff = 5; NextTry = Get-Date; WasDown = $false; DownSince = $null; Version = $ver }
+  [pscustomobject]@{ Proc = $p; Hwnd = $h; Bounds = $b; Url = $m.url; Display = $m.display; Backoff = 5; NextTry = Get-Date; WasDown = $false; DownSince = $null; Version = $ver; Inset = "$ix,$iy" }
 }
 
 function Test-InPlace($st) {
@@ -153,7 +153,7 @@ while ($true) {
       $st = $state[$m.name]
       $reason = $null
       if ($st) {
-        if ($st.Url -ne $m.url -or $st.Display -ne $m.display) { $reason = 'config changed' }
+        if ($st.Url -ne $m.url -or $st.Display -ne $m.display -or $st.Inset -ne ('{0},{1}' -f [int]$m.insetX, [int]$m.insetY)) { $reason = 'config changed' }
         elseif ($dailyDue) { $reason = 'daily refresh' }
         elseif ($st.Proc.HasExited) { $reason = 'process exited' }
         elseif (-not (Test-InPlace $st)) { $reason = 'window left its monitor' }

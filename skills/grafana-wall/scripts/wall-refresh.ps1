@@ -108,13 +108,15 @@ foreach ($p in $reg) {
     $hashFile = Join-Path $stateDir "$slug.hash"
     $old = if (Test-Path $hashFile) { (Get-Content $hashFile -Raw).Trim() } else { '' }
     $missing = $occupied -notcontains $slug
+    # an "all" chart's time range is set at draw time (since the first sample), so redraw such tiles every ~6h to keep it widening
+    $widen = (@($tile.charts | Where-Object { $_.span -eq 'all' }).Count -gt 0) -and (Test-Path $hashFile) -and (((Get-Date) - (Get-Item $hashFile).LastWriteTime).TotalHours -gt 6)
 
-    if ($hash -ne $old -or $missing) {
+    if ($hash -ne $old -or $missing -or $widen) {
       $tmp = Join-Path $stateDir "$slug.tile.json"
       [IO.File]::WriteAllText($tmp, $vis, (New-Object Text.UTF8Encoding $false))
       & $wall snapshot -File $tmp | Out-Null
       Set-Content $hashFile $hash -Encoding ascii
-      Log "[$slug] redrawn ($(if ($missing) { 'tile was missing' } else { 'content changed' }))"
+      Log "[$slug] redrawn ($(if ($missing) { 'tile was missing' } elseif ($widen) { 'widening all-time chart' } else { 'content changed' }))"
     } elseif ($series) {
       $pairs = @($series.PSObject.Properties | ForEach-Object { '{0}={1}' -f $_.Name, [string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $_.Value) })
       & $wall series -Project $slug @pairs | Out-Null
