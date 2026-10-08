@@ -8,7 +8,7 @@ Stdlib only. Endpoints (all but /health need header X-Wall-Key):
   POST /release/<slot>           put the vacant tile back
 Tile spec: see skills/grafana-wall/references/tile-spec.md
 """
-import hmac, html, json, math, os, re, threading, time, urllib.parse, urllib.request, urllib.error
+import base64, hmac, html, json, math, os, re, threading, time, urllib.parse, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ---- CONFIG: tile look + grid constants live here so they are easy to change ----
@@ -115,8 +115,8 @@ def validate(spec):
             raise ValueError("health.state must be one of %s" % sorted(CONFIG["health_colors"]))
         out["health"].append({"name": _s(h.get("name"), "health.name", 18, True), "state": st})
     sl = spec.get("stats") or []
-    if len(sl) > 4:
-        raise ValueError("stats: max 4 entries")
+    if len(sl) > 6:
+        raise ValueError("stats: max 6 entries")
     out["stats"] = [{"label": _s(x.get("label"), "stats.label", 16, True), "value": _s(x.get("value"), "stats.value", 12, True),
                      "trend": _s(x.get("trend"), "stats.trend", 5) if _s(x.get("trend"), "stats.trend", 5) in ("up", "down", "flat") else None}
                     for x in sl]
@@ -125,6 +125,31 @@ def validate(spec):
         raise ValueError("charts: max 4 entries")
     out["charts"] = []
     for c in cl:
+        pts = c.get("points")
+        if pts is not None:
+            # points chart (template v2): data travels with the spec as [[t, v], ...] or [{"t":..,"v":..}, ...]
+            if not isinstance(pts, list) or len(pts) > 200:
+                raise ValueError("charts.points: list of at most 200 points")
+            norm = []
+            for p in pts:
+                t, v = (p.get("t"), p.get("v")) if isinstance(p, dict) else (p[0], p[1]) if isinstance(p, (list, tuple)) and len(p) == 2 else (None, None)
+                norm.append((_num(t, "charts.points.t"), _num(v, "charts.points.v")))
+            kind = _s(c.get("kind"), "charts.kind", 6) or "line"
+            if kind not in ("line", "bar"):
+                raise ValueError("points charts: kind in line|bar")
+            kp = c.get("kpis") or []
+            if len(kp) > 2:
+                raise ValueError("charts.kpis: max 2 per chart")
+            kpis = []
+            for k in kp:
+                stt = _s(k.get("state"), "charts.kpis.state", 5)
+                if stt and stt not in ("ok", "warn", "bad"):
+                    raise ValueError("charts.kpis.state must be ok|warn|bad")
+                kpis.append({"label": _s(k.get("label"), "charts.kpis.label", 12, True), "value": _s(k.get("value"), "charts.kpis.value", 10, True), "state": stt})
+            title = _s(c.get("title"), "charts.title", 22, True)
+            out["charts"].append({"title": title, "points": norm, "kind": kind, "kpis": kpis, "span_label": _s(c.get("span_label"), "charts.span_label", 8) or "",
+                                  "subtitle": _s(c.get("subtitle"), "charts.subtitle", 26) or "", "series": None, "share": 1.0})
+            continue
         series = _s(c.get("series"), "charts.series", 40, True)
         if not SNAME.match(series):
             raise ValueError("charts.series must match [A-Za-z0-9_.-]{1,40}")
@@ -135,7 +160,9 @@ def validate(spec):
             raise ValueError("charts: kind in line|bar|stat, span in %s, unit in %s" % (sorted(CONFIG["span_map"]), CONFIG["units"]))
         share = _num(c.get("share", 1), "charts.share")
         out["charts"].append({"title": _s(c.get("title"), "charts.title", 30) or series, "series": series, "kind": kind,
-                              "span": span, "unit": unit, "share": min(max(share, 0.25), 4.0)})
+                              "span": span, "unit": unit, "share": min(max(share, 0.25), 4.0), "points": None})
+    if out["charts"] and len({ch.get("points") is not None for ch in out["charts"]}) > 1:
+        raise ValueError("charts: do not mix points charts (inline data) with series charts (live Prometheus)")
     ser = spec.get("series") or {}
     if not isinstance(ser, dict) or len(ser) > 20:
         raise ValueError("series: object with max 20 entries")
@@ -242,6 +269,107 @@ def info_html(sp, blocks, roomy=False, framed=False):
     return "".join(parts)
 
 
+TILE_PX = 443          # CSS px of usable card height inside a 13-unit slot (measured on the wall: 469px panel minus padding and border)
+CARD_INNER_PX = 520    # usable CSS px width inside the card at the wall's 95% frame
+
+
+def spark_img(points, kind, w, h):
+    """Chart as a base64 SVG <img>: Grafana's text panel strips inline <svg> and utf8 data URIs but keeps base64 image data URIs."""
+    vals = [p[1] for p in points]
+    if not vals:
+        return None
+    n = len(vals); ymax = max(max(vals), 1.0) * 1.15; pad = 4
+    X = lambda i: pad + (w - 2 * pad) * (i / (n - 1 if n > 1 else 1))
+    Y = lambda v: h - pad - (h - 2 * pad) * (v / ymax)
+    grid = "".join("<line x1='0' x2='%d' y1='%.1f' y2='%.1f' stroke='#1d3050' stroke-width='1'/>" % (w, Y(ymax * f), Y(ymax * f)) for f in (.25, .5, .75))
+    if kind == "bar":
+        bw = max((w - 2 * pad) / n * 0.7, 1.5)
+        body = "".join("<rect x='%.1f' y='%.1f' width='%.1f' height='%.1f' fill='#4da3ff'/>" % (X(i) - bw / 2, Y(v), bw, max(h - pad - Y(v), 0)) for i, v in enumerate(vals))
+    else:
+        line = " ".join("%.1f,%.1f" % (X(i), Y(v)) for i, v in enumerate(vals))
+        area = "%.1f,%.1f %s %.1f,%.1f" % (X(0), h - pad, line, X(n - 1), h - pad)
+        body = ("<defs><linearGradient id='a' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#4da3ff' stop-opacity='.35'/>"
+                "<stop offset='1' stop-color='#4da3ff' stop-opacity='0'/></linearGradient></defs>"
+                "<polygon points='%s' fill='url(#a)'/><polyline points='%s' fill='none' stroke='#4da3ff' stroke-width='2' stroke-linejoin='round'/>"
+                "<circle cx='%.1f' cy='%.1f' r='3' fill='#fff'/>") % (area, line, X(n - 1), Y(vals[-1]))
+    svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 %d %d' width='%d' height='%d'>%s%s</svg>" % (w, h, w, h, grid, body)
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+
+
+def tile_v2_html(sp):
+    """Fixed template: a top bar (name, status, git branch, activity, quick stats, key-part health, current task) over a landscape row of
+    2-3 equal charts, each with its own KPI chips. Every item has its own border. All sizing is explicit because Grafana's sanitizer
+    drops flex:1 / zoom / overflow-style tricks."""
+    c = CONFIG
+    charts = sp["charts"]; n = len(charts)
+    line = "1px solid #1f5fae"; muted = c["muted"]
+    sc = c["status_colors"][sp["status"]]
+    label = esc((sp["status_label"] or sp["status"]).upper())
+    ac = c["activity_colors"][sp["activity"]["state"]]
+    alab = esc(sp["activity"]["state"] + (" \u00b7 " + sp["activity"]["label"] if sp["activity"]["label"] else ""))
+    chip = "display:inline-block;padding:3px 10px;border-radius:12px;background:rgba(77,163,255,.10);border:1px solid rgba(77,163,255,.35);font-size:14px;margin:0 6px 6px 0;"
+    box = "box-sizing:border-box;border:%s;border-radius:8px;background:rgba(31,95,174,.10);" % line
+
+    # ---- top bar
+    chips = ["<span style='%s;color:%s'>&#9095; %s</span>" % (chip, muted, esc(sp["branch"][:24])),
+             "<span style='%s;color:%s'><span style='color:%s'>&#9679;</span> %s</span>" % (chip, muted, ac, alab)]
+    for s in sp["stats"]:
+        arrow = {"up": " <span style='color:#3fb950'>&#9650;</span>", "down": " <span style='color:#f85149'>&#9660;</span>"}.get(s["trend"], "")
+        chips.append("<span style='%s'><b style='font-size:16px'>%s</b>%s <span style='font-size:11px;letter-spacing:.08em;color:%s'>%s</span></span>"
+                     % (chip, esc(s["value"]), arrow, muted, esc(s["label"].upper())))
+    pills = "".join("<span style='display:inline-block;margin:0 6px 6px 0;padding:3px 9px;%sfont-size:14px'><span style='color:%s'>&#9679;</span> %s</span>"
+                    % (box, c["health_colors"][h["state"]], esc(h["name"])) for h in sp["health"])
+    task = ""
+    if sp["task"]:
+        t = sp["task"]
+        t = (t[:51].rstrip() + "\u2026") if len(t) > 52 else t
+        task = ("<div style='%spadding:5px 10px;font-size:14px'><span style='color:%s;letter-spacing:.12em;font-size:11px'>NOW</span>&nbsp; %s</div>" % (box, muted, esc(t)))
+    # estimate how many rows the wrapping chips / pills need from their text widths (~7px per character + padding)
+    avail = CARD_INNER_PX - 24
+    chip_w = [len(sp["branch"][:24]) * 7 + 40, len(sp["activity"]["state"]) * 7 + len(sp["activity"]["label"] or "") * 7 + 50] + \
+             [(len(s["value"]) * 9 + len(s["label"]) * 7 + 44) for s in sp["stats"]]
+    pill_w = [len(h["name"]) * 7.5 + 46 for h in sp["health"]]
+    rows_for = lambda widths: max(1, int(math.ceil(sum(widths) / float(avail)))) if widths else 0
+    chip_rows, pill_rows = rows_for(chip_w), rows_for(pill_w)
+    px = 58 + 36 * chip_rows + 36 * pill_rows + (38 if sp["task"] else 0) + 10
+    top_pct = min(max(int(round(px / TILE_PX * 100)), 38), 58)
+    chart_pct = 100 - top_pct - 2
+    top = ("<div style='height:%d%%'>"
+           "<div style='%spadding:6px 12px;display:flex;align-items:center;justify-content:space-between'>"
+           "<div style='font-size:26px;font-weight:700;letter-spacing:.02em'>%s</div>"
+           "<div style='padding:4px 14px;border-radius:14px;background:%s;color:#fff;font-size:14px;font-weight:700;letter-spacing:.12em'>%s</div></div>"
+           "<div style='margin-top:8px'>%s</div><div>%s</div>%s</div>"
+           % (top_pct, box, esc(sp["name"][:22]), sc, label, "".join(chips), pills, task))
+
+    # ---- charts row
+    chart_px = TILE_PX * chart_pct / 100.0
+    box_w = (CARD_INNER_PX - 8 * (n - 1)) / float(n)
+    state_col = {"ok": "#3fb950", "warn": "#d29922", "bad": "#f85149"}
+    cols = []
+    for ch in charts:
+        has_k = bool(ch["kpis"])
+        img_h = max(int(chart_px - 16 - 2 - 34 - (40 if has_k else 0) - 18 - 14), 50)
+        img_w = max(int(box_w - 18), 80)
+        img = spark_img(ch["points"], ch["kind"], img_w, img_h)
+        vals = [p[1] for p in ch["points"]]
+        head = ("<div style='font-size:13px;font-weight:700;letter-spacing:.06em'>%s</div>"
+                "<div style='font-size:10px;color:%s;min-height:12px'>%s</div>" % (esc(ch["title"].upper()), muted, esc(ch["subtitle"])))
+        kp = ""
+        if has_k:
+            kp = "<div style='display:flex;gap:6px;margin:4px 0'>" + "".join(
+                "<div style='%swidth:calc((100%% - 6px) / 2);padding:2px 7px'><div style='font-size:10px;letter-spacing:.1em;color:%s'>%s</div>"
+                "<div style='font-size:16px;font-weight:700;color:%s'>%s</div></div>"
+                % (box, muted, esc(k["label"].upper()), state_col.get(k["state"], c["text"]), esc(k["value"])) for k in ch["kpis"]) + "</div>"
+        body = ("<img src='%s' style='display:block;width:100%%;height:%dpx'>" % (img, img_h)) if img else \
+               ("<div style='height:%dpx;color:%s;font-size:13px;text-align:center;padding-top:%dpx'>no data</div>" % (img_h, muted, img_h // 2 - 8))
+        foot = ("<div style='display:flex;justify-content:space-between;font-size:10px;color:%s;margin-top:2px'><span>-%s</span><span>max %s</span><span>now</span></div>"
+                % (muted, esc(ch["span_label"] or ""), ("%g" % round(max(vals), 2)) if vals else "-"))
+        cols.append("<div style='%swidth:calc((100%% - %dpx) / %d);height:100%%;padding:8px'>%s%s%s%s</div>" % (box, 8 * (n - 1), n, head, kp, body, foot))
+    row = "<div style='display:flex;gap:8px;height:%d%%;margin-top:2%%'>%s</div>" % (chart_pct, "".join(cols))
+
+    return ("<div style='box-sizing:border-box;height:100%%;padding:12px 14px;border:%s;border-radius:%s;box-shadow:%s;background:%s;"
+            "font-family:Inter,sans-serif;color:%s'>%s%s</div>" % (c["border"], c["radius"], c["glow"], c["card_bg"], c["text"], top, row))
+
 def first_sample_age(project, series):
     """Seconds since this series' first Prometheus sample, or None. Tiered subqueries (fine resolution first) because a fixed 5y range
     makes Grafana's query step days wide, so young data would fall between steps and the chart would say 'No data'."""
@@ -304,6 +432,10 @@ def render_tile(slot, idx, sp):
     ox, oy = col * W, r * H
     base_id = 1000 + slot * 10
     tag = "wall:s%02d:%s" % (slot, sp["project"])
+    if sp["charts"] and all(ch.get("points") is not None for ch in sp["charts"]):     # template v2: one card, landscape chart row
+        return ([{"id": base_id, "type": "text", "title": "", "transparent": True, "description": tag,
+                  "gridPos": {"x": ox, "y": oy, "w": W, "h": H}, "options": {"mode": "html", "content": tile_v2_html(sp)}}],
+                {"slot": slot, "template": "v2", "charts": len(sp["charts"]), "info_h": H, "chart_h": 0})
     blocks, info_h = plan(sp)
     has_charts = bool(sp["charts"])
     panels = [{"id": base_id, "type": "text", "title": "", "transparent": not has_charts, "description": tag,
@@ -453,14 +585,15 @@ def wall_page(uid, width_pct):
     """Kiosk wrapper: the dashboard in a centred frame `width_pct`% wide on the same dark background, so TV overscan can't clip
     the edges (a kiosk Chrome window snaps back to full-monitor size when resized, so the margin has to live in the page).
     The page also polls the dashboard's saved version and reloads only the frame when it changes (no window restart)."""
+    # On a version change the new frame loads BEHIND the old one and is swapped in a few seconds after it finishes loading, so a redraw never blinks.
     return ("<!doctype html><meta charset=utf-8><title>wall</title><style>html,body{margin:0;height:100%%;background:#111217;overflow:hidden}"
-            "iframe{position:absolute;top:0;bottom:0;left:50%%;width:%d%%;height:100%%;transform:translateX(-50%%);border:0}</style>"
-            "<iframe id=f></iframe><script>"
-            "var f=document.getElementById('f'),v=null;"
-            "f.src=location.protocol+'//'+location.hostname+':3000/d/%s?%s';"
+            "iframe{position:absolute;top:0;bottom:0;left:50%%;width:%d%%;height:100%%;transform:translateX(-50%%);border:0}</style><script>"
+            "var U=location.protocol+'//'+location.hostname+':3000/d/%s?%s',cur=null,v=null,z=1;"
+            "function load(){var f=document.createElement('iframe');f.style.zIndex=0;f.src=U;document.body.appendChild(f);"
+            "f.onload=function(){setTimeout(function(){f.style.zIndex=++z;var old=cur;cur=f;if(old){setTimeout(function(){if(old.parentNode)old.parentNode.removeChild(old)},400)}},cur?3500:0)}}"
             "function tick(){fetch('/wall/%s/version',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){"
-            "if(v!==null&&j.version!==v){f.src=f.src}v=j.version}).catch(function(){}).then(function(){setTimeout(tick,5000)})}tick();"
-            "</script>") % (width_pct, uid, WALL_QS, uid)
+            "if(v!==null&&j.version!==v){load()}v=j.version}).catch(function(){}).then(function(){setTimeout(tick,5000)})}"
+            "window.addEventListener('DOMContentLoaded',function(){load();tick()});</script>") % (width_pct, uid, WALL_QS, uid)
 
 
 class Conflict(Exception):

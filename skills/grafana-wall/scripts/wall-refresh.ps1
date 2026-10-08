@@ -87,15 +87,16 @@ foreach ($p in $reg) {
       $null = $proc.Handle                     # caching the handle is what makes ExitCode readable later (known Start-Process -PassThru quirk)
       $finished = $proc.WaitForExit(60000)
       if ($finished) { $proc.WaitForExit() }   # the untimed wait flushes redirected output and populates ExitCode (null after only a timed wait)
-      if (-not $finished) { & taskkill.exe /PID $proc.Id /T /F *> $null; Log "[$slug] hook timed out (60s); keeping last known facts" }
-      elseif ($proc.ExitCode -ne 0) { Log "[$slug] hook exit '$($proc.ExitCode)'; keeping last known facts" }
+      # a failing hook means "do not touch the tile this cycle": the wall keeps showing what it last drew
+      if (-not $finished) { & taskkill.exe /PID $proc.Id /T /F *> $null; Log "[$slug] hook timed out (60s); tile left as is"; continue }
+      elseif ($proc.ExitCode -ne 0) { Log "[$slug] hook exit '$($proc.ExitCode)'; tile left as is"; continue }
       else {
         try {
           $patch = Get-Content $outFile -Raw | ConvertFrom-Json
-          foreach ($k in 'status', 'status_label', 'task', 'tests', 'health', 'stats') { if ($patch.PSObject.Properties[$k]) { Set-Prop $tile $k $patch.$k } }
+          foreach ($k in 'status', 'status_label', 'task', 'tests', 'health', 'stats', 'charts') { if ($patch.PSObject.Properties[$k]) { Set-Prop $tile $k $patch.$k } }
           if ($patch.activity -and $patch.activity.state) { $act.state = $patch.activity.state }   # e.g. 'stalled'
           if ($patch.series) { $series = $patch.series }
-        } catch { Log "[$slug] hook output is not valid JSON: $($_.Exception.Message)" }
+        } catch { Log "[$slug] hook output is not valid JSON ($($_.Exception.Message)); tile left as is"; continue }
       }
     }
     Set-Prop $tile 'activity' $act
