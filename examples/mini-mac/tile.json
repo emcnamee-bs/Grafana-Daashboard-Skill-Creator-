@@ -7,6 +7,7 @@
   "branch": "Ubuntu 26.04",
   "activity": { "state": "active", "label": "up" },
   "task": "Running via GL.iNet travel router (wired)",
+  "summary": "The always-on host that runs the monitoring stack and the wall.",
   "health": [ { "name": "Travel router", "state": "unknown" } ],
   "stats": [ { "label": "UPLINK", "value": "?" } ]
 }
