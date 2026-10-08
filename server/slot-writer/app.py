@@ -8,7 +8,7 @@ Stdlib only. Endpoints (all but /health need header X-Wall-Key):
   POST /release/<slot>           put the vacant tile back
 Tile spec: see skills/grafana-wall/references/tile-spec.md
 """
-import base64, hmac, html, json, math, os, re, threading, time, urllib.parse, urllib.request, urllib.error
+import base64, hmac, html, json, math, os, re, textwrap, threading, time, urllib.parse, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ---- CONFIG: tile look + grid constants live here so they are easy to change ----
@@ -179,6 +179,27 @@ def validate(spec):
     out["chart_min_h"] = int(min(max(_num(cmh, "layout.chart_min_h"), 0), 9)) if cmh is not None else None
     pin = lay.get("pin") or []
     out["pin"] = [p for p in pin if p in ("task", "tests", "health", "stats")]
+    # optional: ask for a specific vacant slot (a project that already owns a slot keeps it)
+    want = spec.get("slot")
+    out["slot"] = None
+    if want is not None:
+        w = int(_num(want, "slot"))
+        if w not in ALL_SLOTS:
+            raise ValueError("slot must be 1-18")
+        out["slot"] = w
+    # optional: rotating showcase tile (one item at a time, animated, loops forever) instead of the status template
+    sc = spec.get("showcase")
+    out["showcase"] = None
+    if sc:
+        items = sc.get("items") or []
+        if not isinstance(items, list) or not (1 <= len(items) <= 100):
+            raise ValueError("showcase.items: 1-100 entries")
+        every = _num(sc.get("interval", 10), "showcase.interval")
+        if not (3 <= every <= 60):
+            raise ValueError("showcase.interval must be 3-60 seconds")
+        out["showcase"] = {"interval": every, "items": [
+            {"group": _s(i.get("group"), "showcase.items.group", 20), "title": _s(i.get("title"), "showcase.items.title", 34, True),
+             "text": _s(i.get("text"), "showcase.items.text", 140, True)} for i in items]}
     return out
 
 
@@ -441,6 +462,69 @@ def chart_panel(ch, sp, pid, gp, tag):
     return base
 
 
+def showcase_svg(sc, w=520, h=360):
+    """One self-contained animated SVG (CSS keyframes only, no script) that shows each item for `interval` seconds, then slides/fades to
+    the next, looping forever. It travels as a base64 <img> because Grafana's text-panel sanitizer drops inline <svg>, <style> and scripts
+    but keeps images. Every item owns a group whose animation-delay is its turn in the loop; all share one period so the loop never drifts."""
+    items, every = sc["items"], float(sc["interval"])
+    n = len(items); total = n * every
+    pct = lambda t: "%.4f%%" % (t / total * 100.0)
+    ein, eout = 0.7, 0.7          # entrance / exit seconds
+    css = (
+        ".g{opacity:0;animation:k1 %(T)gs linear infinite}"
+        ".d{opacity:0;animation:k2 %(T)gs linear infinite}"
+        ".u{transform-box:fill-box;transform-origin:0 50%%;transform:scaleX(0);animation:k3 %(T)gs linear infinite}"
+        ".p{transform-box:fill-box;transform-origin:0 50%%;animation:kp %(I)gs linear infinite}"
+        ".q{transform-box:fill-box;transform-origin:0 50%%;animation:kp %(T)gs linear infinite}"
+        "@keyframes k1{0%%{opacity:0;transform:translateX(70px)}%(a)s{opacity:1;transform:translateX(0)}%(b)s{opacity:1;transform:translateX(0)}"
+        "%(c)s{opacity:0;transform:translateX(-70px)}100%%{opacity:0;transform:translateX(-70px)}}"
+        "@keyframes k2{0%%{opacity:0;transform:translateY(16px)}%(d)s{opacity:0;transform:translateY(16px)}%(e)s{opacity:1;transform:translateY(0)}"
+        "%(b)s{opacity:1;transform:translateY(0)}%(c)s{opacity:1}100%%{opacity:1}}"
+        "@keyframes k3{0%%{transform:scaleX(0)}%(d)s{transform:scaleX(0)}%(f)s{transform:scaleX(1)}%(b)s{transform:scaleX(1)}%(c)s{transform:scaleX(1)}100%%{transform:scaleX(1)}}"
+        "@keyframes kp{0%%{transform:scaleX(0)}100%%{transform:scaleX(1)}}"
+        "@keyframes gl{0%%,100%%{opacity:.35}50%%{opacity:.75}}"
+        % {"T": total, "I": every, "a": pct(ein), "b": pct(every - eout), "c": pct(every), "d": pct(0.30), "e": pct(1.05), "f": pct(0.95)})
+    parts = ["<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 %d %d' width='%d' height='%d' font-family='Inter,Segoe UI,Helvetica,Arial,sans-serif'>" % (w, h, w, h),
+             "<defs><radialGradient id='r' cx='50%' cy='45%' r='70%'><stop offset='0' stop-color='#1f5fae' stop-opacity='.45'/><stop offset='1' stop-color='#1f5fae' stop-opacity='0'/></radialGradient></defs>",
+             "<style>%s</style>" % css,
+             "<rect x='-300' width='%d' height='%d' fill='url(#r)' style='animation:gl 6s ease-in-out infinite'/>" % (w + 600, h)]
+    for i, it in enumerate(items):
+        title = it["title"]
+        fs = int(min(40, 480.0 / (0.6 * max(len(title), 1))))
+        lines = textwrap.wrap(it["text"], 38)[:4]
+        group = (it["group"] or "").upper()
+        gw = len(group) * 8 + 24
+        chip = ("<rect x='24' y='24' width='%d' height='24' rx='12' fill='#4da3ff' fill-opacity='.12' stroke='#4da3ff' stroke-opacity='.45'/>"
+                "<text x='36' y='40' font-size='11' font-weight='700' letter-spacing='1.6' fill='#4da3ff'>%s</text>" % (gw, esc(group))) if group else ""
+        tl = "".join("<tspan x='28' dy='%d'>%s</tspan>" % (0 if k == 0 else 32, esc(ln)) for k, ln in enumerate(lines))
+        parts.append(
+            "<g class='g' style='animation-delay:%gs'>%s"
+            "<text x='%d' y='40' font-size='13' font-weight='600' letter-spacing='1' text-anchor='end' fill='#8fa6c8'>%02d / %02d</text>"
+            "<text x='28' y='138' font-size='%d' font-weight='700' fill='#e8eefc'>%s</text>"
+            "<rect class='u' x='28' y='156' width='96' height='4' rx='2' fill='#4da3ff' style='animation-delay:%gs'/>"
+            "<text class='d' x='28' y='212' font-size='22' fill='#b9c9e6' style='animation-delay:%gs'>%s</text></g>"
+            % (i * every, chip, w - 24, i + 1, n, fs, esc(title), i * every, i * every, tl))
+    parts.append("<rect x='0' y='%d' width='%d' height='4' fill='#1f3a5f' fill-opacity='.6'/><rect class='p' x='0' y='%d' width='%d' height='4' fill='#4da3ff'/>"
+                 "<rect class='q' x='0' y='%d' width='%d' height='2' fill='#8fa6c8' fill-opacity='.7'/></svg>" % (h - 10, w, h - 10, w, h - 4, w))
+    return "".join(parts)
+
+
+def tile_showcase_html(sp):
+    c = CONFIG; sc = sp["showcase"]
+    line = "1px solid #1f5fae"
+    box = "box-sizing:border-box;border:%s;border-radius:8px;background:rgba(31,95,174,.10);" % line
+    img = "data:image/svg+xml;base64," + base64.b64encode(showcase_svg(sc).encode("utf-8")).decode("ascii")
+    label = esc((sp["status_label"] or ("%d ITEMS" % len(sc["items"]))).upper())
+    top = ("<div style='%spadding:6px 12px;display:flex;align-items:center;justify-content:space-between'>"
+           "<div style='font-size:26px;font-weight:700;letter-spacing:.02em'>%s</div>"
+           "<div style='padding:4px 14px;border-radius:14px;background:%s;color:#fff;font-size:14px;font-weight:700;letter-spacing:.12em'>%s</div></div>"
+           % (box, esc(sp["name"][:22]), c["status_colors"][sp["status"]], label))
+    return ("<div style='box-sizing:border-box;height:100%%;padding:12px 14px;border:%s;border-radius:%s;box-shadow:%s;background:%s;"
+            "font-family:Inter,sans-serif;color:%s'>%s<div style='%smargin-top:8px;padding:0;overflow:hidden'>"
+            "<img src='%s' style='display:block;width:100%%;height:360px'></div></div>"
+            % (c["border"], c["radius"], c["glow"], c["card_bg"], c["text"], top, box, img))
+
+
 def render_tile(slot, idx, sp):
     c = CONFIG
     W, H = c["panel_w"], c["panel_h"]
@@ -448,6 +532,10 @@ def render_tile(slot, idx, sp):
     ox, oy = col * W, r * H
     base_id = 1000 + slot * 10
     tag = "wall:s%02d:%s" % (slot, sp["project"])
+    if sp.get("showcase"):                                                   # rotating showcase: one animated card
+        return ([{"id": base_id, "type": "text", "title": "", "transparent": True, "description": tag,
+                  "gridPos": {"x": ox, "y": oy, "w": W, "h": H}, "options": {"mode": "html", "content": tile_showcase_html(sp)}}],
+                {"slot": slot, "template": "showcase", "items": len(sp["showcase"]["items"]), "interval_s": sp["showcase"]["interval"]})
     if sp["charts"] and all(ch.get("points") is not None for ch in sp["charts"]):     # template v2: one card, landscape chart row
         return ([{"id": base_id, "type": "text", "title": "", "transparent": True, "description": tag,
                   "gridPos": {"x": ox, "y": oy, "w": W, "h": H}, "options": {"mode": "html", "content": tile_v2_html(sp)}}],
@@ -564,6 +652,10 @@ def snapshot(raw, dry):
         free = [s for s, v in st.items() if v["state"] == "vacant"]
         if mine:
             slot, reused = mine[0], True
+        elif sp.get("slot"):
+            if sp["slot"] not in free:
+                raise Conflict({"error": "slot %d is not vacant" % sp["slot"], "occupied": {s: v.get("project") for s, v in st.items() if v["state"] == "occupied"}})
+            slot, reused = sp["slot"], False
         elif free:
             slot, reused = sorted(free)[0], False
         else:

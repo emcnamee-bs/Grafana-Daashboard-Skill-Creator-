@@ -1,0 +1,63 @@
+custom|grafana-wall|Puts a project on the 18-square Grafana monitor wall as a live status tile.
+security|claude-security|Scans a codebase, a branch or a PR, then drafts verified patch files.
+security|scan|Claude Security pipeline: inventory, research, then a three-lens adversarial panel.
+superpowers|brainstorming|Explores intent, requirements and design before any creative or feature work begins.
+superpowers|diagnosing-superpowers|Works out why a session went wrong and builds a bug report for the maintainers.
+superpowers|dispatching-parallel-agents|Fans out independent tasks to agents that work on them at the same time.
+superpowers|executing-plans|Carries out a written implementation plan step by step in the current session.
+superpowers|finishing-a-development-branch|Decides how to integrate finished work once the code is done and tests pass.
+superpowers|receiving-code-review|Verifies review feedback technically before acting, instead of agreeing blindly.
+superpowers|requesting-code-review|Checks finished work against the requirements before it is merged.
+superpowers|subagent-driven-development|Runs a plan's independent tasks through subagents in the current session.
+superpowers|systematic-debugging|Finds the root cause of any bug or failing test before proposing a fix.
+superpowers|test-driven-development|Writes the failing test first, then the code that makes it pass.
+superpowers|using-git-worktrees|Gives feature work an isolated workspace so your checkout stays untouched.
+superpowers|using-superpowers|Sets the ground rule: look for a matching skill before any response or action.
+superpowers|verification-before-completion|Requires running the checks and reading the output before claiming success.
+superpowers|writing-plans|Turns a spec into a multi-step plan before a single line of code changes.
+superpowers|writing-skills|Creates and edits skills, and verifies they work before deployment.
+engineering|architecture|Writes or evaluates an architecture decision record with trade-offs and consequences.
+engineering|code-review|Reviews changes for security, performance and correctness before you merge.
+engineering|debug|A structured session to reproduce, isolate, diagnose and fix a problem.
+engineering|deploy-checklist|Pre-deployment checks: CI, approvals, migrations, flags and rollback triggers.
+engineering|documentation|Writes READMEs, API docs, runbooks and onboarding guides.
+engineering|incident-response|Triage, communicate and write the blameless postmortem for an incident.
+engineering|standup|Turns recent commits, PRs and ticket moves into a yesterday / today / blockers update.
+engineering|system-design|Designs services, APIs, data models and architectures from requirements.
+engineering|tech-debt|Identifies, categorises and prioritises technical debt and refactoring work.
+engineering|testing-strategy|Designs test strategies, plans and coverage for a feature or system.
+artifacts|dataviz|Builds charts, dashboards and stat tiles that read as one accessible visual system.
+artifacts|artifact-design|Design fundamentals for every page published as an Artifact.
+artifacts|artifact-diagramming|Draws legible inline-SVG diagrams that show the real mechanism.
+artifacts|artifact-capabilities|Gives published pages live data, shared state, files and Claude calls.
+claude code|update-config|Edits Claude Code settings: hooks, permissions and environment variables.
+claude code|keybindings-help|Rebinds keyboard shortcuts and adds chords in keybindings.json.
+claude code|fewer-permission-prompts|Scans past runs and allowlists common read-only commands to cut prompts.
+claude code|loop|Runs a prompt or command repeatedly on an interval, or self-paced.
+claude code|schedule|Creates and manages scheduled cloud agents that run on a cron schedule.
+claude code|claude-api|Reference for building on the Claude API and SDK: models, tools, caching.
+claude code|workflow-authoring|Reference for writing multi-agent Workflow scripts.
+claude code|run|Launches the project's app and drives it to confirm a change really works.
+claude code|plugin-authoring|Builds live panes, status lines and hooks that hot-reload inside Claude Code.
+claude code|init|Creates a CLAUDE.md that documents the codebase for future sessions.
+claude code|security-review|Complete security review of the pending changes on the current branch.
+claude code|code-review|Reviews a diff or PR for correctness bugs at a chosen effort level.
+claude code|simplify|Reviews changed code for reuse and efficiency, then applies the fixes.
+anthropic-skills|brightsign-ai-use-policy|Answers what AI use is allowed at BrightSign, and with which data.
+anthropic-skills|brightsign-deck|Builds and extends on-brand BrightSign PowerPoint decks.
+anthropic-skills|brightsign-messaging|Keeps BrightSign copy on-message: positioning, voice and proof points.
+anthropic-skills|brightsign-report-cloud-issue|Interviews the reporter and posts a complete Control or Author bug report to Slack.
+anthropic-skills|brightsign-word|Formats Word documents, memos and letters in BrightSign branding.
+anthropic-skills|built-in-browser|Drives the in-app browser pane with persistent sign-ins.
+anthropic-skills|chrome-browser|Acts in your real Chrome with your own sign-ins.
+anthropic-skills|computer-use|Takes screenshots and controls desktop apps with clicks and typing.
+anthropic-skills|deep-research|Researches a topic across many sources and writes a narrative report.
+anthropic-skills|docs|Creates editable docs that people share, comment on and export.
+anthropic-skills|docx|Creates, reads and edits Word documents, including tracked changes.
+anthropic-skills|google-workspace|Creates and changes Google Docs, Sheets and Slides files in Drive.
+anthropic-skills|import-memory|Brings a memory export from another AI assistant into Claude.
+anthropic-skills|morning|Renders your morning brief as a styled artifact, or schedules it.
+anthropic-skills|pdf|Reads, merges, splits, fills, OCRs and creates PDF files.
+anthropic-skills|pptx|Creates, reads and edits PowerPoint decks and templates.
+anthropic-skills|skill-creator|Creates, tests and benchmarks skills, and tunes their descriptions.
+anthropic-skills|xlsx|Opens, repairs and builds spreadsheets with formulas and charts.
