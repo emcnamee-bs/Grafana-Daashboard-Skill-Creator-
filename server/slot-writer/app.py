@@ -312,21 +312,22 @@ def info_html(sp, blocks, roomy=False, framed=False):
     k = 1.25 if roomy else 1.0
     S = lambda n: int(round(n * k))
     line = "1px solid #1f5fae"
-    def box(inner, extra=""):
-        return ("<div style='box-sizing:border-box;border:%s;border-radius:8px;background:rgba(31,95,174,.10);padding:%dpx %dpx;%s'>%s</div>"
-                % (line, S(6), S(10), extra, inner))
+    def box(inner, extra="", attrs=""):
+        return ("<div%s style='box-sizing:border-box;border:%s;border-radius:8px;background:rgba(31,95,174,.10);padding:%dpx %dpx;%s'>%s</div>"
+                % (attrs, line, S(6), S(10), extra, inner))
     chip = "display:inline-block;padding:3px 10px;border-radius:12px;background:rgba(77,163,255,.10);border:1px solid rgba(77,163,255,.35);"
     # framed = a chart panel sits below, so this panel keeps Grafana's own chrome (same edges as the chart panels) and the card adds none
     outer = "border:0;" if framed else "border:%s;border-radius:%s;box-shadow:%s;" % (c["border"], c["radius"], c["glow"])
-    parts = ["<div style='box-sizing:border-box;height:100%%;padding:12px 14px;%sbackground:%s;"
+    # explorable like the chart-row template: payload for the viewer, hover CSS, bootstrap (the last two are display:none: they take no part in the flex layout)
+    parts = ["<div data-wl-data='%s' style='box-sizing:border-box;height:100%%;padding:12px 14px;%sbackground:%s;"
              "display:flex;flex-direction:column;justify-content:space-between;font-family:Inter,sans-serif;color:%s;overflow:hidden'>"
-             % (outer, c["card_bg"], c["text"])]
+             % (payload_attr(sp), outer, c["card_bg"], c["text"]), WL_CSS, boot_html()]
     name = esc(sp["name"][:22])
     parts.append("<div>" + box(
         "<div style='display:flex;align-items:center;justify-content:space-between;gap:10px'>"
         "<div style='font-size:%dpx;font-weight:700;letter-spacing:.02em'>%s</div>"
         "<div style='padding:4px 14px;border-radius:14px;background:%s;color:#fff;font-size:%dpx;font-weight:700;letter-spacing:.12em'>%s</div></div>"
-        % (S(26), name, sc, S(14), label)) +
+        % (S(26), name, sc, S(14), label), attrs=tgt("square", sp.get("summary"))) +
         "<div style='margin-top:6px;font-size:%dpx;color:%s;display:flex;gap:8px'><span style='%s'>&#9095; %s</span>"
         "<span style='%s'><span style='color:%s'>&#9679;</span> %s</span></div></div>"
         % (S(14), c["muted"], chip, esc(sp["branch"][:24]), chip, ac, alab))
@@ -346,16 +347,17 @@ def info_html(sp, blocks, roomy=False, framed=False):
                         % (S(13), c["muted"], S(12), esc((t["label"] or "TESTS").upper()), c["text"], t["passed"],
                            (" &middot; <span style='color:#f85149'>%d failed</span>" % t["failed"]) if t["failed"] else "", S(7), pw, fw)))
     if "health" in blocks:
-        pills = "".join("<span style='display:inline-block;margin:0 6px 6px 0;padding:%dpx %dpx;border:%s;border-radius:8px;background:rgba(31,95,174,.10);font-size:%dpx'>"
-                        "<span style='color:%s'>&#9679;</span> %s</span>" % (S(3), S(9), line, S(14), c["health_colors"][h["state"]], esc(h["name"])) for h in sp["health"])
+        pills = "".join("<span%s style='display:inline-block;margin:0 6px 6px 0;padding:%dpx %dpx;border:%s;border-radius:8px;background:rgba(31,95,174,.10);font-size:%dpx'>"
+                        "<span style='color:%s'>&#9679;</span> %s</span>"
+                        % (tgt("health:%d" % i, h.get("explain")), S(3), S(9), line, S(14), c["health_colors"][h["state"]], esc(h["name"])) for i, h in enumerate(sp["health"]))
         body.append("<div>%s</div>" % pills)
     if "stats" in blocks:
         n = len(sp["stats"]); cells = []
-        for s in sp["stats"]:
+        for i, s in enumerate(sp["stats"]):
             arrow = {"up": " <span style='color:#3fb950'>&#9650;</span>", "down": " <span style='color:#f85149'>&#9660;</span>", "flat": ""}.get(s["trend"], "")
             cells.append(box("<div style='font-size:%dpx;font-weight:700'>%s%s</div><div style='font-size:%dpx;letter-spacing:.1em;color:%s'>%s</div>"
                              % (S(24), esc(s["value"]), arrow, S(11), c["muted"], esc(s["label"].upper())),
-                             "width:calc((100%% - %dpx) / %d);" % (8 * (n - 1), n)))
+                             "width:calc((100%% - %dpx) / %d);" % (8 * (n - 1), n), attrs=tgt("stat:%d" % i, s.get("explain"))))
         body.append("<div style='display:flex;gap:8px'>%s</div>" % "".join(cells))
     style = "margin:auto 0;display:flex;flex-direction:column;gap:%dpx;" % (14 if roomy else 8)
     if body:
@@ -434,7 +436,7 @@ def tile_payload(sp):
         "health": [{"name": h["name"], "state": h["state"], "explain": h.get("explain"), "detail": h.get("detail")} for h in sp["health"]],
         "charts": [{"title": ch["title"], "subtitle": ch["subtitle"], "kind": ch["kind"], "y_max": ch["y_max"], "span_label": ch["span_label"],
                     "points": ch["points"], "history": ch.get("history"), "history_label": ch.get("history_label") or "", "kpis": ch["kpis"],
-                    "explain": ch.get("explain"), "breakdown": ch.get("breakdown")} for ch in sp["charts"]],
+                    "explain": ch.get("explain"), "breakdown": ch.get("breakdown")} for ch in sp["charts"] if ch.get("points") is not None],   # legacy series charts are live Grafana panels: no inline points to draw
     }
 
 

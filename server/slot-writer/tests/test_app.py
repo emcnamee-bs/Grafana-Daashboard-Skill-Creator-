@@ -201,6 +201,58 @@ class TileMarkup(unittest.TestCase):
         self.assertEqual(lay["template"], "v2")
 
 
+class MaximalTile(unittest.TestCase):
+    """Review Focus 5: a tile at the validated maximum must stay inside the body and payload limits (not just a monkeypatched cap)."""
+    def maximal_spec(self):
+        items = [{"name": ("n%02d" % i) + "y" * 20, "state": "up", "what": "w" * 120} for i in range(12)]
+        detail = {"why": "w" * 240, "items": items}
+        pts = [[1790000000 + i * 60, 123456.789 + i] for i in range(200)]
+        hist = [[1790000000 + i * 60, 123456.789 + i] for i in range(400)]
+        kpis = [{"label": "L" * 12, "value": "V" * 10, "state": "ok", "explain": "e" * 200}] * 2
+        worst = [{"label": "l" * 24, "value": "v" * 12}] * 5
+        chart = lambda i: {"title": "Chart %d" % i, "subtitle": "s" * 26, "span_label": "12h", "points": pts, "history": hist, "history_label": "7d",
+                           "explain": "e" * 200, "kpis": kpis, "breakdown": {"ok_pct": 50, "err_pct": 50, "total": 123456789, "worst": worst}}
+        return {"project": "max", "summary": "s" * 240, "task": "t" * 90,
+                "stats": [{"label": "L" * 16, "value": "V" * 12, "trend": "up", "explain": "e" * 200, "detail": detail}] * 6,
+                "health": [{"name": "H" * 18, "state": "up", "explain": "e" * 200, "detail": detail}] * 8,
+                "charts": [chart(i) for i in range(4)]}
+
+    def test_validated_maximum_fits_the_request_and_payload_limits(self):
+        spec = self.maximal_spec()
+        self.assertLess(len(json.dumps(spec)), app.MAX_BODY, "a maximal spec must be accepted by the request limit")
+        page = app.tile_v2_html(app.validate(spec))              # raises "tile detail too large" past MAX_PAYLOAD
+        size = len(html.unescape(re.search(r"data-wl-data='([^']*)'", page).group(1)))
+        self.assertLess(size, app.MAX_PAYLOAD, "embedded payload is %d bytes" % size)
+
+
+class ExplorableOtherTemplates(unittest.TestCase):
+    """Every tile the skill can publish is explorable, not only the chart-row template."""
+    def spec(self, **kw):
+        d = {"project": "demo", "name": "Demo", "summary": "A demo tile",
+             "stats": [{"label": "Open PRs", "value": "3", "explain": "Pull requests open now."}],
+             "health": [{"name": "API", "state": "up", "explain": "health endpoint answers"}]}
+        d.update(kw)
+        return app.validate(d)
+
+    def test_top_bar_only_tile_is_explorable(self):
+        panels, _ = app.render_tile(1, 0, self.spec())          # no charts: the top bar fills the square
+        content = panels[0]["options"]["content"]
+        for t in ("square", "stat:0", "health:0"):
+            self.assertIn("data-wl='%s'" % t, content)
+            self.assertIn("wallOpen(this,'%s')" % t, content)
+        self.assertIn(".wl-t:hover", content)
+        self.assertIn(":8088/wall/viewer.js", content)
+        p = payload_of(content)
+        self.assertEqual(p["name"], "Demo")
+        self.assertEqual(p["charts"], [])
+
+    def test_legacy_series_chart_tile_keeps_a_valid_payload(self):
+        panels, _ = app.render_tile(1, 0, self.spec(charts=[{"title": "Earnings", "series": "earnings", "kind": "line"}]))
+        content = panels[0]["options"]["content"]
+        self.assertEqual(payload_of(content)["charts"], [])     # live Grafana panels carry no inline points: nothing for the viewer to draw
+        self.assertIn("data-wl='square'", content)
+
+
 class WrapperHold(unittest.TestCase):
     def test_reload_is_deferred_while_an_overlay_is_open(self):
         page = app.wall_page("wall-top", 95)
