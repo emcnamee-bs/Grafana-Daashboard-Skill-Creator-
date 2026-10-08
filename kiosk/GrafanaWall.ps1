@@ -19,6 +19,7 @@ using System;
 using System.Runtime.InteropServices;
 public static class W32 {
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
@@ -80,6 +81,10 @@ function Start-Dash($m, $cfg) {
   if (-not $screen) { Write-Log "[$($m.name)] display $($m.display) not found"; return $null }
   $b = $screen.Bounds
   $pd = Join-Path $profDir $m.name
+  # A Chrome left over from a dead supervisor still owns this profile: a new launch would only open another window inside it and
+  # exit at once (looks like a crash -> relaunch loop, a new fullscreen window every ~18s). Clear it so our launch is the real browser.
+  $stale = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like "*$pd*" })
+  if ($stale.Count) { Write-Log "[$($m.name)] clearing $($stale.Count) leftover chrome process(es) on this profile"; $stale | ForEach-Object { & taskkill.exe /PID $_.ProcessId /F *> $null }; Start-Sleep 1 }
   # insetX/insetY = pixels hidden per side by TV overscan (0 = true fullscreen kiosk).
   # scale makes the slot grid (contentHeight CSS px tall) fill the visible height exactly.
   $ix = [int]$m.insetX; $iy = [int]$m.insetY
@@ -126,6 +131,10 @@ Write-Log '=== supervisor starting ==='
 $state = @{}
 $cfg = Load-Config
 $cfgStamp = (Get-Item $cfgPath).LastWriteTime
+# A wall must not idle-sleep or blank its displays (Windows would after the idle timeouts, since Chrome showing a dashboard is not "input").
+# ES_CONTINUOUS|ES_SYSTEM_REQUIRED|ES_DISPLAY_REQUIRED lasts while this loop runs; a manual Sleep / Shut down from the Start menu still works.
+# Set "keepAwake": false in monitors.json to let Windows decide again.
+if (-not $cfg -or $cfg.keepAwake -ne $false) { [void][W32]::SetThreadExecutionState(0x80000003); Write-Log 'keep-awake requested (display + system)' }
 $lastDaily = (Get-Date).Date
 
 while ($true) {
