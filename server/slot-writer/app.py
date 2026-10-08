@@ -40,6 +40,14 @@ KEY = os.environ["WALL_KEY"]
 LOCK = threading.Lock()
 MAX_BODY = 262144          # request body cap: a tile may now carry chart history and detail lists
 MAX_PAYLOAD = 120000       # cap on the JSON embedded in one tile (see tile_payload)
+VIEWER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer.js")
+
+
+def viewer_js():
+    with open(VIEWER_PATH, "rb") as f:        # read per request: it is small, and a replaced file needs no restart
+        return f.read()
+
+
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 SNAME = re.compile(r"^[A-Za-z0-9_.-]{1,40}$")
 TAG = re.compile(r"^wall:s(\d\d):(.+)$")
@@ -845,6 +853,11 @@ class H(BaseHTTPRequestHandler):
         try:
             if method == "GET" and path in ("/health", "/api/health"):    # /api/health lets the kiosk supervisor treat this port like Grafana
                 return self._send(200, {"ok": True})
+            if method == "GET" and path == "/wall/viewer.js":              # unauthenticated static script, loaded by each tile's bootstrap
+                b = viewer_js()
+                self.send_response(200); self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache"); self.send_header("Content-Length", str(len(b))); self.end_headers()
+                return self.wfile.write(b)
             m = re.fullmatch(r"/wall/([a-z0-9-]+)(/version)?", path)       # unauthenticated: static page + a version number, nothing sensitive
             if method == "GET" and m:
                 uid = m.group(1)

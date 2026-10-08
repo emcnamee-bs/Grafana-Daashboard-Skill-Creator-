@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><title>harness</title>
+<style>html,body{margin:0;background:#111217}iframe{border:0;display:block}</style>
+<script>
+/* Hosts viewer_frame.html in an iframe of an exact size (?vp=WxH, default the wall's 1824x1080) so every check runs at a known viewport,
+   the way Grafana runs inside the wall's wrapper page. Judges the viewer's {wallHold} messages and reports in document.title / data-wlfails. */
+(function () {
+  var q = new URLSearchParams(location.search), vp = (q.get('vp') || '1824x1080').split('x');
+  var holds = [], done = false;
+  function finish(r) {
+    var fails = r.fails.slice();
+    if (!(holds.length && holds[0] === true)) fails.push('hold not announced');
+    if (r.flow && holds[holds.length - 1] !== false) fails.push('hold not released on close');
+    if (!r.flow && holds[holds.length - 1] !== true) fails.push('hold released while the view is open');
+    document.documentElement.setAttribute('data-wlfails', fails.join(' | ') + ' [viewport ' + r.vp + ']');
+    document.title = 'WLTEST:' + (fails.length ? 'FAIL' : 'PASS');
+  }
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (typeof d.wallHold === 'boolean') holds.push(d.wallHold);
+    if (d.wlResult && !done) { done = true; finish(d.wlResult); }
+  });
+  setTimeout(function () { if (!done) { done = true; finish({ fails: ['no result from the frame (script error?)'], vp: '?', flow: false }); } }, 2500);
+  window.addEventListener('DOMContentLoaded', function () {
+    var f = document.createElement('iframe');
+    f.width = vp[0]; f.height = vp[1];
+    f.src = 'viewer_frame.html' + location.search;
+    document.body.appendChild(f);
+  });
+})();
+</script>

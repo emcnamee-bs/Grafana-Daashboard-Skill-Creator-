@@ -1,0 +1,69 @@
+<!doctype html><meta charset="utf-8"><title>frame</title>
+<style>html,body{margin:0;background:#111217}</style>
+<script>var alerted = false; window.alert = function () { alerted = true; };</script>
+<script src="../viewer.js"></script>
+<script src="fixtures.js"></script>
+<script>
+/* Runs inside an iframe of an exact size (see viewer_harness.html), like Grafana inside the wall's wrapper page.
+   Posts {wlResult:{fails, vp, flow}} to the parent when done; the parent also judges the hold messages the viewer posts. */
+window.addEventListener('load', function () {
+  var q = new URLSearchParams(location.search), fx = q.get('fx') || 'full', view = q.get('view') || 'square', flow = q.get('flow');
+  var fails = [];
+  function check(ok, msg) { if (!ok) fails.push(msg); }
+  function overlay() { return document.querySelector('[data-wl-overlay]'); }
+  function finish() { parent.postMessage({ wlResult: { fails: fails, vp: innerWidth + 'x' + innerHeight, flow: !!flow } }, '*'); }
+  if (typeof wallShow !== 'function') { fails.push('viewer.js did not load (wallShow missing)'); }
+  else wallShow(FIXTURES[fx], view);
+  setTimeout(function () {
+    var ov = overlay();
+    check(!!ov, 'overlay present');
+    if (ov) {
+      check(ov.scrollWidth <= ov.clientWidth + 1 && ov.scrollHeight <= ov.clientHeight + 1, 'overlay overflows its viewport');
+      var bad = 0, who = [];
+      ov.querySelectorAll('*').forEach(function (n) {
+        var r = n.getBoundingClientRect();
+        if (r.width && r.height && (r.right > innerWidth + 1 || r.bottom > innerHeight + 1 || r.left < -1 || r.top < -1)) {
+          bad++;
+          if (who.length < 4) who.push(n.tagName.toLowerCase() + '"' + (n.textContent || '').slice(0, 14) + '"[' + Math.round(r.left) + ',' + Math.round(r.top) + ',' + Math.round(r.right) + ',' + Math.round(r.bottom) + ']');
+        }
+      });
+      check(bad === 0, bad + ' elements outside the window: ' + who.join(' '));
+      // content hidden inside a scroll/clip container (overflow auto/hidden) is just as bad as content off the window
+      var clipped = [];
+      ov.querySelectorAll('*').forEach(function (n) {
+        if (n instanceof SVGElement) return;
+        var cs = getComputedStyle(n);
+        if (cs.overflowX === 'visible' && cs.overflowY === 'visible') return;
+        if (n.scrollHeight > n.clientHeight + 1 || n.scrollWidth > n.clientWidth + 1) clipped.push(n.tagName.toLowerCase() + '"' + (n.textContent || '').slice(0, 14) + '"[' + n.scrollWidth + 'x' + n.scrollHeight + ' in ' + n.clientWidth + 'x' + n.clientHeight + ']');
+      });
+      check(clipped.length === 0, clipped.length + ' clipped containers: ' + clipped.slice(0, 3).join(' '));
+      ov.querySelectorAll('svg').forEach(function (s) { check(s.getBoundingClientRect().width >= 200, 'chart narrower than 200px'); });
+      check(!ov.querySelector('img,script,iframe'), 'tile text became markup');
+      check(!/NaN|undefined|Infinity/.test(ov.textContent), 'NaN/undefined/Infinity in the view');
+    }
+    check(!alerted, 'injected script ran');
+    if (flow && ov) {
+      // tooltips first, while the square view (icons + charts) is open
+      var icon = ov.querySelector('[data-wl-i]');
+      check(!!icon, 'square view has no info icons');
+      if (icon) { icon.dispatchEvent(new MouseEvent('mouseenter')); check(!!document.querySelector('[data-wl-tip]'), 'info icon shows no tooltip'); icon.dispatchEvent(new MouseEvent('mouseleave')); check(!document.querySelector('[data-wl-tip]'), 'tooltip stuck after mouseleave'); }
+      var svg = ov.querySelector('svg');
+      check(!!svg, 'square view has no chart');
+      if (svg) { var r = svg.getBoundingClientRect(); svg.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true })); check(!!document.querySelector('[data-wl-tip]'), 'chart hover shows no tooltip'); svg.dispatchEvent(new MouseEvent('mouseleave')); }
+      // clicking a card opens another view, with navigation buttons
+      var cards = ov.querySelectorAll('[data-wl-click]');
+      check(cards.length > 0, 'no clickable cards in the square view');
+      if (cards.length) {
+        cards[0].click();
+        var ov2 = overlay();
+        check(!!ov2 && ov2 !== ov, 'clicking a card did not open another view');
+        check(!!(ov2 && ov2.querySelector('[data-wl-btn]')), 'no back/close buttons');
+      }
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      check(!overlay(), 'Escape did not close the overlay');
+      return setTimeout(finish, 100);       // postMessage is asynchronous: let the release message go out first (message order is preserved)
+    }
+    finish();
+  }, 400);
+});
+</script>

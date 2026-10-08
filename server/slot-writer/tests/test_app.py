@@ -199,3 +199,11 @@ class TileMarkup(unittest.TestCase):
         panels, lay = app.render_tile(1, 0, self.sp())
         self.assertIn("wl-t", panels[0]["options"]["content"])
         self.assertEqual(lay["template"], "v2")
+
+
+class ViewerRoute(ServerCase):
+    def test_viewer_js_is_served_without_a_key(self):
+        code, headers, body = self.request("GET", "/wall/viewer.js")
+        self.assertEqual(code, 200)
+        self.assertTrue(headers["Content-Type"].startswith("application/javascript"))
+        self.assertTrue(body.startswith(b"/* Wall full-screen viewer"))
