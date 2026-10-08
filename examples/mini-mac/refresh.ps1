@@ -32,6 +32,14 @@ function New-Chart($title, $subtitle, $pts, $warnAt, $badAt, $yMax, $explain, $h
 }
 function Test-Url($url) { try { (Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200 } catch { $false } }
 function St($ok) { if ($ok) { 'up' } else { 'down' } }
+# docker's own status text -> a health state. `docker ps -a` is used so a container that has DIED still appears (as down): it is the one
+# state the full-screen Containers view exists to reveal. Never uses docker's ticking uptime (it would redraw the tile constantly).
+function Get-ContainerState($status) {
+  if ($status -match '^(Exited|Dead|Created|Restarting|Removal)') { return 'down' }
+  if ($status -match 'unhealthy|health: starting|Paused') { return 'degraded' }
+  if ($status -match '^Up') { return 'up' }
+  'unknown'
+}
 # a health light with its hover/full-screen explanation; `why` (what is wrong right now) is attached only when the light is not up
 function New-Light($name, $state, $explain, $why) {
   $l = [ordered]@{ name = $name; state = $state; explain = $explain }
@@ -69,8 +77,8 @@ echo "WIRED_MAC=$([ -n "$WGW" ] && ip neigh show "$WGW" dev $W 2>/dev/null | awk
 echo "WIFI_GW=${FGW:-}"
 echo "WIFI_LOSS=$([ -n "$FGW" ] && lossof -I $F "$FGW" || echo 100)"
 echo "NET_LOSS=$(lossof 1.1.1.1)"
-echo "CONTAINERS=$(docker ps -q 2>/dev/null | wc -l)"
-echo "CONTAINER_LIST=$(docker ps --format '{{.Names}}|{{.Status}}' 2>/dev/null | tr '\n' ';')"
+echo "CONTAINERS=$(docker ps -q --filter label=com.docker.compose.project=monitoring 2>/dev/null | wc -l)"
+echo "CONTAINER_LIST=$(docker ps -a --filter label=com.docker.compose.project=monitoring --format '{{.Names}}|{{.Status}}' 2>/dev/null | tr '\n' ';')"
 echo "UPTIME_S=$(cut -d. -f1 /proc/uptime)"
 '@
 $net = @{}; $routerKnown = $true
@@ -105,8 +113,7 @@ if ($routerKnown) {
                 'node-exporter' = 'Host CPU, memory, disk and temperature metrics'; 'slot-writer' = 'Draws and releases wall tiles; serves the wall page' }
   foreach ($e in (($net.CONTAINER_LIST) -split ';' | Where-Object { $_ })) {
     $nm, $stt = $e -split '\|', 2
-    $state = if ($stt -match 'unhealthy') { 'degraded' } elseif ($stt -match '^Up') { 'up' } else { 'down' }
-    $items += @{ name = $nm; state = $state; what = $(if ($purpose[$nm]) { $purpose[$nm] } else { '' }) }
+    $items += @{ name = $nm; state = (Get-ContainerState $stt); what = $(if ($purpose[$nm]) { $purpose[$nm] } else { '' }) }
   }
   $okc = @($items | Where-Object { $_.state -eq 'up' }).Count
   $s = [int](& $num 'UPTIME_S'); $d = [math]::Floor($s / 86400); $h = [math]::Floor(($s % 86400) / 3600)
@@ -137,7 +144,7 @@ elseif ($odd.Count -gt 0) { $status = 'warn'; $label = "$($odd.Count) DEGRADED" 
 $stats = @(@{ label = 'UPLINK'; value = $uplink; explain = 'Which link carries mini-mac traffic: the wired travel router or the Wi-Fi backup.' },
            @{ label = 'Disk free'; value = "$diskFree%"; explain = 'Free space on the root disk.' })
 if ($up) { $stats += @{ label = 'Uptime'; value = $up; explain = 'Time since the host last booted.' } }
-$cstat = @{ label = 'Containers'; value = $cont; explain = 'Docker containers running on mini-mac.' }
+$cstat = @{ label = 'Containers'; value = $cont; explain = 'Running containers of the monitoring stack on mini-mac (the full-screen view also lists any that have stopped).' }
 if ($items.Count -gt 0) { $cstat.detail = @{ why = "$okc of $($items.Count) healthy"; items = $items } }
 $stats += $cstat
 

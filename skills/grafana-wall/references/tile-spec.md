@@ -38,7 +38,7 @@ The tile is one card: top bar (name, status, git chip, activity, stat chips, hea
 
 ## Interactive detail (all optional; every field degrades to a minimal view when absent)
 
-On the wall every box lights on hover and opens a full-screen view on click (top bar = the whole square; a chip, health light, chart or KPI = just that thing; Esc closes). These fields fill those views. `explain` is also the box's hover tooltip.
+On the wall every box lights on hover and opens a full-screen view on click (top bar = the whole square; a chip, health light, chart or KPI = just that thing; Esc closes). These fields fill those views. `explain` is also the box's hover tooltip. This works on every status tile (with or without charts); the rotating `showcase` tile is not explorable.
 
 | Field | On | Notes |
 |---|---|---|
