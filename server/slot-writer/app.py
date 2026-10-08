@@ -811,15 +811,19 @@ WALL_QS = "kiosk&refresh=30s&theme=dark&_dash.hideTimePicker&_dash.hideVariables
 def wall_page(uid, width_pct):
     """Kiosk wrapper: the dashboard in a centred frame `width_pct`% wide on the same dark background, so TV overscan can't clip
     the edges (a kiosk Chrome window snaps back to full-monitor size when resized, so the margin has to live in the page).
-    The page also polls the dashboard's saved version and reloads only the frame when it changes (no window restart)."""
+    The page also polls the dashboard's saved version and reloads only the frame when it changes (no window restart).
+    While a full-screen view is open (the Grafana page posts {wallHold: true}) a pending reload waits until it closes, or 10 minutes."""
     # On a version change the new frame loads BEHIND the old one and is swapped in a few seconds after it finishes loading, so a redraw never blinks.
     return ("<!doctype html><meta charset=utf-8><title>wall</title><style>html,body{margin:0;height:100%%;background:#111217;overflow:hidden}"
             "iframe{position:absolute;top:0;bottom:0;left:50%%;width:%d%%;height:100%%;transform:translateX(-50%%);border:0}</style><script>"
-            "var U=location.protocol+'//'+location.hostname+':3000/d/%s?%s',cur=null,v=null,z=1;"
+            "var U=location.protocol+'//'+location.hostname+':3000/d/%s?%s',cur=null,v=null,z=1,hold=false,pend=false,holdT=null;"
             "function load(){var f=document.createElement('iframe');f.style.zIndex=0;f.src=U;document.body.appendChild(f);"
             "f.onload=function(){setTimeout(function(){f.style.zIndex=++z;var old=cur;cur=f;if(old){setTimeout(function(){if(old.parentNode)old.parentNode.removeChild(old)},400)}},cur?3500:0)}}"
             "function tick(){fetch('/wall/%s/version',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){"
-            "if(v!==null&&j.version!==v){load()}v=j.version}).catch(function(){}).then(function(){setTimeout(tick,5000)})}"
+            "if(v!==null&&j.version!==v){pend=true}v=j.version;go()}).catch(function(){}).then(function(){setTimeout(tick,5000)})}"
+            "function go(){if(pend&&!hold){pend=false;load()}}"
+            "window.addEventListener('message',function(e){if(!cur||e.source!==cur.contentWindow||!e.data||typeof e.data.wallHold!=='boolean')return;"
+            "hold=e.data.wallHold;clearTimeout(holdT);if(hold){holdT=setTimeout(function(){hold=false;go()},600000)}else{go()}});"
             "window.addEventListener('DOMContentLoaded',function(){load();tick()});</script>") % (width_pct, uid, WALL_QS, uid)
 
 

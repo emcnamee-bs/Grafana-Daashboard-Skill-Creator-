@@ -201,6 +201,17 @@ class TileMarkup(unittest.TestCase):
         self.assertEqual(lay["template"], "v2")
 
 
+class WrapperHold(unittest.TestCase):
+    def test_reload_is_deferred_while_an_overlay_is_open(self):
+        page = app.wall_page("wall-top", 95)
+        self.assertIn("wallHold", page)                        # listens for the viewer's hold message
+        self.assertIn("e.source!==cur.contentWindow", page)    # ...but only from its own iframe
+        self.assertIn("pend=true", page)                       # a version change is remembered, not applied
+        self.assertIn("if(pend&&!hold)", page)                 # ...and applied once the hold is gone
+        self.assertIn("600000", page)                          # a crashed viewer can never freeze updates for more than 10 minutes
+        self.assertIn("/wall/wall-top/version", page)          # existing behaviour kept
+
+
 class ViewerRoute(ServerCase):
     def test_viewer_js_is_served_without_a_key(self):
         code, headers, body = self.request("GET", "/wall/viewer.js")
