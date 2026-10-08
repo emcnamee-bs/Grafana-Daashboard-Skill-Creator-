@@ -1,0 +1,12 @@
+{
+  "project": "mini-mac",
+  "name": "Mini-Mac",
+  "slot": 8,
+  "status": "ok",
+  "status_label": "ALL GREEN",
+  "branch": "Ubuntu 26.04",
+  "activity": { "state": "active", "label": "up" },
+  "task": "Running via GL.iNet travel router (wired)",
+  "health": [ { "name": "Travel router", "state": "unknown" } ],
+  "stats": [ { "label": "UPLINK", "value": "?" } ]
+}

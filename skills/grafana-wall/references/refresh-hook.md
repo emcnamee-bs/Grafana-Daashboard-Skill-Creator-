@@ -24,7 +24,7 @@ Optional. Runs in its own hidden PowerShell with the project as working director
 | `stats` | list of `{label, value, trend?}`; replaces the tile's list |
 | `charts` | the full list of points charts (see `tile-spec.md`): each with `title`, `subtitle`, `points`, `span_label`, `kpis`. Replaces the tile's list, so history is always current. |
 | `series` | `{name: number}` current values for legacy live series charts |
-| `activity` | `{state}` only: lets the hook say `stalled` (should be running but is not). Label stays automatic. |
+| `activity` | `{state, label?}`: lets the hook say `stalled` (should be running but is not). The label stays automatic (coarse git/session recency) unless the hook gives one - for a project that is not a git repo (a host), e.g. `up 1d 4h`. Keep it coarse; it is part of the redraw hash. |
 
 If the hook fails, times out or prints invalid JSON, refresh logs it (`~/.grafana-wall/refresh.log`) and keeps the last known facts for that project, so a broken hook never blanks a tile.
 

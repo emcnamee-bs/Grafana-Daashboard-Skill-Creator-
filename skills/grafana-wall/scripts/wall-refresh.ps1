@@ -95,6 +95,7 @@ foreach ($p in $reg) {
           $patch = Get-Content $outFile -Raw | ConvertFrom-Json
           foreach ($k in 'status', 'status_label', 'task', 'tests', 'health', 'stats', 'charts') { if ($patch.PSObject.Properties[$k]) { Set-Prop $tile $k $patch.$k } }
           if ($patch.activity -and $patch.activity.state) { $act.state = $patch.activity.state }   # e.g. 'stalled'
+          if ($patch.activity -and $patch.activity.label) { $act.label = [string]$patch.activity.label }   # non-git projects (a host) own their label
           if ($patch.series) { $series = $patch.series }
         } catch { Log "[$slug] hook output is not valid JSON ($($_.Exception.Message)); tile left as is"; continue }
       }
