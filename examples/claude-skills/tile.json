@@ -1,0 +1,327 @@
+﻿{
+    "project":  "claude-skills",
+    "name":  "Claude Skills",
+    "status":  "ok",
+    "status_label":  "63 SKILLS",
+    "slot":  7,
+    "showcase":  {
+                     "interval":  10,
+                     "items":  [
+                                   {
+                                       "group":  "custom",
+                                       "title":  "grafana-wall",
+                                       "text":  "Puts a project on the 18-square Grafana monitor wall as a live status tile."
+                                   },
+                                   {
+                                       "group":  "security",
+                                       "title":  "claude-security",
+                                       "text":  "Scans a codebase, a branch or a PR, then drafts verified patch files."
+                                   },
+                                   {
+                                       "group":  "security",
+                                       "title":  "scan",
+                                       "text":  "Claude Security pipeline: inventory, research, then a three-lens adversarial panel."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "brainstorming",
+                                       "text":  "Explores intent, requirements and design before any creative or feature work begins."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "diagnosing-superpowers",
+                                       "text":  "Works out why a session went wrong and builds a bug report for the maintainers."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "dispatching-parallel-agents",
+                                       "text":  "Fans out independent tasks to agents that work on them at the same time."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "executing-plans",
+                                       "text":  "Carries out a written implementation plan step by step in the current session."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "finishing-a-development-branch",
+                                       "text":  "Decides how to integrate finished work once the code is done and tests pass."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "receiving-code-review",
+                                       "text":  "Verifies review feedback technically before acting, instead of agreeing blindly."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "requesting-code-review",
+                                       "text":  "Checks finished work against the requirements before it is merged."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "subagent-driven-development",
+                                       "text":  "Runs a plan\u0027s independent tasks through subagents in the current session."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "systematic-debugging",
+                                       "text":  "Finds the root cause of any bug or failing test before proposing a fix."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "test-driven-development",
+                                       "text":  "Writes the failing test first, then the code that makes it pass."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "using-git-worktrees",
+                                       "text":  "Gives feature work an isolated workspace so your checkout stays untouched."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "using-superpowers",
+                                       "text":  "Sets the ground rule: look for a matching skill before any response or action."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "verification-before-completion",
+                                       "text":  "Requires running the checks and reading the output before claiming success."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "writing-plans",
+                                       "text":  "Turns a spec into a multi-step plan before a single line of code changes."
+                                   },
+                                   {
+                                       "group":  "superpowers",
+                                       "title":  "writing-skills",
+                                       "text":  "Creates and edits skills, and verifies they work before deployment."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "architecture",
+                                       "text":  "Writes or evaluates an architecture decision record with trade-offs and consequences."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "code-review",
+                                       "text":  "Reviews changes for security, performance and correctness before you merge."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "debug",
+                                       "text":  "A structured session to reproduce, isolate, diagnose and fix a problem."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "deploy-checklist",
+                                       "text":  "Pre-deployment checks: CI, approvals, migrations, flags and rollback triggers."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "documentation",
+                                       "text":  "Writes READMEs, API docs, runbooks and onboarding guides."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "incident-response",
+                                       "text":  "Triage, communicate and write the blameless postmortem for an incident."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "standup",
+                                       "text":  "Turns recent commits, PRs and ticket moves into a yesterday / today / blockers update."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "system-design",
+                                       "text":  "Designs services, APIs, data models and architectures from requirements."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "tech-debt",
+                                       "text":  "Identifies, categorises and prioritises technical debt and refactoring work."
+                                   },
+                                   {
+                                       "group":  "engineering",
+                                       "title":  "testing-strategy",
+                                       "text":  "Designs test strategies, plans and coverage for a feature or system."
+                                   },
+                                   {
+                                       "group":  "artifacts",
+                                       "title":  "dataviz",
+                                       "text":  "Builds charts, dashboards and stat tiles that read as one accessible visual system."
+                                   },
+                                   {
+                                       "group":  "artifacts",
+                                       "title":  "artifact-design",
+                                       "text":  "Design fundamentals for every page published as an Artifact."
+                                   },
+                                   {
+                                       "group":  "artifacts",
+                                       "title":  "artifact-diagramming",
+                                       "text":  "Draws legible inline-SVG diagrams that show the real mechanism."
+                                   },
+                                   {
+                                       "group":  "artifacts",
+                                       "title":  "artifact-capabilities",
+                                       "text":  "Gives published pages live data, shared state, files and Claude calls."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "update-config",
+                                       "text":  "Edits Claude Code settings: hooks, permissions and environment variables."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "keybindings-help",
+                                       "text":  "Rebinds keyboard shortcuts and adds chords in keybindings.json."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "fewer-permission-prompts",
+                                       "text":  "Scans past runs and allowlists common read-only commands to cut prompts."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "loop",
+                                       "text":  "Runs a prompt or command repeatedly on an interval, or self-paced."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "schedule",
+                                       "text":  "Creates and manages scheduled cloud agents that run on a cron schedule."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "claude-api",
+                                       "text":  "Reference for building on the Claude API and SDK: models, tools, caching."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "workflow-authoring",
+                                       "text":  "Reference for writing multi-agent Workflow scripts."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "run",
+                                       "text":  "Launches the project\u0027s app and drives it to confirm a change really works."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "plugin-authoring",
+                                       "text":  "Builds live panes, status lines and hooks that hot-reload inside Claude Code."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "init",
+                                       "text":  "Creates a CLAUDE.md that documents the codebase for future sessions."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "security-review",
+                                       "text":  "Complete security review of the pending changes on the current branch."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "code-review",
+                                       "text":  "Reviews a diff or PR for correctness bugs at a chosen effort level."
+                                   },
+                                   {
+                                       "group":  "claude code",
+                                       "title":  "simplify",
+                                       "text":  "Reviews changed code for reuse and efficiency, then applies the fixes."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "brightsign-ai-use-policy",
+                                       "text":  "Answers what AI use is allowed at BrightSign, and with which data."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "brightsign-deck",
+                                       "text":  "Builds and extends on-brand BrightSign PowerPoint decks."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "brightsign-messaging",
+                                       "text":  "Keeps BrightSign copy on-message: positioning, voice and proof points."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "brightsign-report-cloud-issue",
+                                       "text":  "Interviews the reporter and posts a complete Control or Author bug report to Slack."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "brightsign-word",
+                                       "text":  "Formats Word documents, memos and letters in BrightSign branding."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "built-in-browser",
+                                       "text":  "Drives the in-app browser pane with persistent sign-ins."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "chrome-browser",
+                                       "text":  "Acts in your real Chrome with your own sign-ins."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "computer-use",
+                                       "text":  "Takes screenshots and controls desktop apps with clicks and typing."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "deep-research",
+                                       "text":  "Researches a topic across many sources and writes a narrative report."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "docs",
+                                       "text":  "Creates editable docs that people share, comment on and export."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "docx",
+                                       "text":  "Creates, reads and edits Word documents, including tracked changes."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "google-workspace",
+                                       "text":  "Creates and changes Google Docs, Sheets and Slides files in Drive."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "import-memory",
+                                       "text":  "Brings a memory export from another AI assistant into Claude."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "morning",
+                                       "text":  "Renders your morning brief as a styled artifact, or schedules it."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "pdf",
+                                       "text":  "Reads, merges, splits, fills, OCRs and creates PDF files."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "pptx",
+                                       "text":  "Creates, reads and edits PowerPoint decks and templates."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "skill-creator",
+                                       "text":  "Creates, tests and benchmarks skills, and tunes their descriptions."
+                                   },
+                                   {
+                                       "group":  "anthropic-skills",
+                                       "title":  "xlsx",
+                                       "text":  "Opens, repairs and builds spreadsheets with formulas and charts."
+                                   }
+                               ]
+                 }
+}

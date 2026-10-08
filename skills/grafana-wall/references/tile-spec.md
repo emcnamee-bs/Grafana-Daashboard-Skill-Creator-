@@ -17,6 +17,8 @@ JSON sent to `POST /snapshot` (via `wall.ps1 snapshot -File tile.json`, or produ
 | `task` | text ≤90 (52 shown) | What is in flight. |
 | `charts` | up to 4 (use 2-3) | See below. |
 | `tests`, `layout`, `series` | legacy | Only used by the legacy series-chart layout (below). |
+| `slot` | 1-18 | Optional: claim this specific vacant slot instead of the next one (a project that already owns a slot keeps it; an occupied slot is a conflict). |
+| `showcase` | `{interval?, items[]}` | Optional rotating tile instead of the status template: one item at a time, animated, looping forever. `interval` 3-60 s (default 10); 1-100 `items` of `{group? ≤20, title ≤34, text ≤140}`. `name`/`status`/`status_label` still fill the top bar; charts/stats/health are ignored. Example: `examples/claude-skills/` (the Claude Skills square). |
 
 ## Charts (template v2: inline points)
 
