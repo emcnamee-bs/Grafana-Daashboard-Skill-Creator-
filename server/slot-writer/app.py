@@ -394,10 +394,54 @@ def spark_img(points, kind, w, h, y_max=None):
     svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 %d %d' width='%d' height='%d'>%s%s</svg>" % (w, h, w, h, grid, body)
     return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode(), ymax
 
+WL_CSS = ("<style>.wl-t{cursor:pointer;transition:border-color .15s,background-color .15s,box-shadow .15s}"
+          ".wl-t:hover{border-color:#4da3ff!important;background:rgba(77,163,255,.20)!important;box-shadow:0 0 14px rgba(77,163,255,.5)}"
+          ".wl-t:has(.wl-t:hover):hover{border-color:#1f5fae!important;background:rgba(31,95,174,.10)!important;box-shadow:none}</style>")
+
+
+def tgt(target, tip=None):
+    """Attributes that make a tile box a hover/click target of the full-screen viewer.
+    target: square | stat:i | health:i | chart:i | kpi:i:j. The tip (the item's explain text) is the native hover tooltip."""
+    t = esc((tip + " — " if tip else "") + "click for details")
+    return (" class='wl-t' data-wl='%s' title='%s' onclick=\"event.stopPropagation();window.wallOpen&&wallOpen(this,'%s')\""
+            % (esc(target), t, esc(target)))
+
+
+def boot_html():
+    """1x1 image whose onload installs the viewer script once per page (scripts inside innerHTML do not run, image handlers do)."""
+    return ("<img alt='' width='1' height='1' style='display:none' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7' "
+            "onload=\"if(!window.wallOpen){var s=document.createElement('script');"
+            "s.src=location.protocol+'//'+location.hostname+':%d/wall/viewer.js';document.head.appendChild(s)}\">" % CONFIG["viewer_port"])
+
+
+def tile_payload(sp):
+    """Everything the full-screen viewer needs, embedded in the tile so a click needs no network call. Plain data only."""
+    c = CONFIG
+    act = sp["activity"]["state"] + (" · " + sp["activity"]["label"] if sp["activity"]["label"] else "")
+    return {
+        "colors": {"status": c["status_colors"], "health": c["health_colors"], "accent": c["accent"], "text": c["text"], "muted": c["muted"]},
+        "name": sp["name"], "status": sp["status"], "status_label": sp["status_label"] or sp["status"], "branch": sp["branch"],
+        "activity": act, "task": sp["task"], "summary": sp.get("summary"),
+        "stats": [{"label": s["label"], "value": s["value"], "trend": s["trend"], "explain": s.get("explain"), "detail": s.get("detail")} for s in sp["stats"]],
+        "health": [{"name": h["name"], "state": h["state"], "explain": h.get("explain"), "detail": h.get("detail")} for h in sp["health"]],
+        "charts": [{"title": ch["title"], "subtitle": ch["subtitle"], "kind": ch["kind"], "y_max": ch["y_max"], "span_label": ch["span_label"],
+                    "points": ch["points"], "history": ch.get("history"), "history_label": ch.get("history_label") or "", "kpis": ch["kpis"],
+                    "explain": ch.get("explain"), "breakdown": ch.get("breakdown")} for ch in sp["charts"]],
+    }
+
+
+def payload_attr(sp):
+    """The payload as an HTML-attribute-safe string (ASCII-only JSON, then HTML-escaped incl. quotes)."""
+    raw = json.dumps(tile_payload(sp), separators=(",", ":"), ensure_ascii=True)
+    if len(raw) > MAX_PAYLOAD:
+        raise ValueError("tile detail too large (%d bytes, max %d): shorten history, detail or explain text" % (len(raw), MAX_PAYLOAD))
+    return esc(raw)
+
+
 def tile_v2_html(sp):
     """Fixed template: a top bar (name, status, git branch, activity, quick stats, key-part health, current task) over a landscape row of
     2-3 equal charts, each with its own KPI chips. Every item has its own border. All sizing is explicit because Grafana's sanitizer
-    drops flex:1 / zoom / overflow-style tricks."""
+    drops flex:1 / zoom / overflow-style tricks. Every box is also a hover/click target of the full-screen viewer (see tgt)."""
     c = CONFIG
     charts = sp["charts"]; n = len(charts)
     line = "1px solid #1f5fae"; muted = c["muted"]
@@ -411,12 +455,12 @@ def tile_v2_html(sp):
     # ---- top bar
     chips = ["<span style='%s;color:%s'>&#9095; %s</span>" % (chip, muted, esc(sp["branch"][:24])),
              "<span style='%s;color:%s'><span style='color:%s'>&#9679;</span> %s</span>" % (chip, muted, ac, alab)]
-    for s in sp["stats"]:
+    for i, s in enumerate(sp["stats"]):
         arrow = {"up": " <span style='color:#3fb950'>&#9650;</span>", "down": " <span style='color:#f85149'>&#9660;</span>"}.get(s["trend"], "")
-        chips.append("<span style='%s'><b style='font-size:16px'>%s</b>%s <span style='font-size:11px;letter-spacing:.08em;color:%s'>%s</span></span>"
-                     % (chip, esc(s["value"]), arrow, muted, esc(s["label"].upper())))
-    pills = "".join("<span style='display:inline-block;margin:0 6px 6px 0;padding:3px 9px;%sfont-size:14px'><span style='color:%s'>&#9679;</span> %s</span>"
-                    % (box, c["health_colors"][h["state"]], esc(h["name"])) for h in sp["health"])
+        chips.append("<span%s style='%s'><b style='font-size:16px'>%s</b>%s <span style='font-size:11px;letter-spacing:.08em;color:%s'>%s</span></span>"
+                     % (tgt("stat:%d" % i, s.get("explain")), chip, esc(s["value"]), arrow, muted, esc(s["label"].upper())))
+    pills = "".join("<span%s style='display:inline-block;margin:0 6px 6px 0;padding:3px 9px;%sfont-size:14px'><span style='color:%s'>&#9679;</span> %s</span>"
+                    % (tgt("health:%d" % i, h.get("explain")), box, c["health_colors"][h["state"]], esc(h["name"])) for i, h in enumerate(sp["health"]))
     task = ""
     if sp["task"]:
         t = sp["task"]
@@ -433,42 +477,46 @@ def tile_v2_html(sp):
     top_pct = min(max(int(round(px / TILE_PX * 100)), 38), 58)
     chart_pct = 100 - top_pct - 2
     top = ("<div style='height:%d%%'>"
-           "<div style='%spadding:6px 12px;display:flex;align-items:center;justify-content:space-between'>"
+           "<div%s style='%spadding:6px 12px;display:flex;align-items:center;justify-content:space-between'>"
            "<div style='font-size:26px;font-weight:700;letter-spacing:.02em'>%s</div>"
            "<div style='padding:4px 14px;border-radius:14px;background:%s;color:#fff;font-size:14px;font-weight:700;letter-spacing:.12em'>%s</div></div>"
            "<div style='margin-top:8px'>%s</div><div>%s</div>%s</div>"
-           % (top_pct, box, esc(sp["name"][:22]), sc, label, "".join(chips), pills, task))
+           % (top_pct, tgt("square", sp.get("summary")), box, esc(sp["name"][:22]), sc, label, "".join(chips), pills, task))
 
     # ---- charts row
     chart_px = TILE_PX * chart_pct / 100.0
     box_w = (CARD_INNER_PX - 8 * (n - 1)) / float(n)
     state_col = {"ok": "#3fb950", "warn": "#d29922", "bad": "#f85149"}
     cols = []
-    for ch in charts:
+    for ci, ch in enumerate(charts):
         has_k = bool(ch["kpis"])
         img_h = max(int(chart_px - 16 - 2 - 34 - (40 if has_k else 0) - 18 - 14), 50)
         img_w = max(int(box_w - 18 - 20), 60)          # 20px left for the y-axis labels
         img, ymax = spark_img(ch["points"], ch["kind"], img_w, img_h, ch.get("y_max"))
         vals = [p[1] for p in ch["points"]]
-        head = ("<div style='font-size:13px;font-weight:700;letter-spacing:.06em'>%s</div>"
-                "<div style='font-size:10px;color:%s;min-height:12px'>%s</div>" % (esc(ch["title"].upper()), muted, esc(ch["subtitle"])))
+        icon = ("<span title='%s' style='color:%s;font-size:12px;line-height:13px;cursor:help'>&#9432;</span>" % (esc(ch["explain"]), muted)) if ch.get("explain") else ""
+        head = ("<div style='display:flex;justify-content:space-between;align-items:baseline'>"
+                "<div style='font-size:13px;font-weight:700;letter-spacing:.06em'>%s</div>%s</div>"
+                "<div style='font-size:10px;color:%s;min-height:12px'>%s</div>" % (esc(ch["title"].upper()), icon, muted, esc(ch["subtitle"])))
         kp = ""
         if has_k:
             kp = "<div style='display:flex;gap:6px;margin:4px 0'>" + "".join(
-                "<div style='%swidth:calc((100%% - 6px) / 2);padding:2px 7px'><div style='font-size:10px;letter-spacing:.1em;color:%s'>%s</div>"
+                "<div%s style='%swidth:calc((100%% - 6px) / 2);padding:2px 7px'><div style='font-size:10px;letter-spacing:.1em;color:%s'>%s</div>"
                 "<div style='font-size:16px;font-weight:700;color:%s'>%s</div></div>"
-                % (box, muted, esc(k["label"].upper()), state_col.get(k["state"], c["text"]), esc(k["value"])) for k in ch["kpis"]) + "</div>"
+                % (tgt("kpi:%d:%d" % (ci, ki), k.get("explain")), box, muted, esc(k["label"].upper()), state_col.get(k["state"], c["text"]), esc(k["value"]))
+                for ki, k in enumerate(ch["kpis"])) + "</div>"
         axis = ("<div style='display:flex;gap:4px'><div style='width:16px;height:%dpx;display:flex;flex-direction:column;justify-content:space-between;text-align:right;font-size:10px;color:%s'>"
                 "<span>%g</span><span>%g</span><span>0</span></div><img src='%s' style='display:block;width:calc(100%% - 20px);height:%dpx'></div>" % (img_h, muted, ymax, ymax / 2.0, img, img_h)) if img else None
         body = axis if img else \
                ("<div style='height:%dpx;color:%s;font-size:13px;text-align:center;padding-top:%dpx'>no data</div>" % (img_h, muted, img_h // 2 - 8))
         foot = ("<div style='display:flex;justify-content:space-between;font-size:10px;color:%s;margin-top:2px'><span>-%s</span><span>max %s</span><span>now</span></div>"
                 % (muted, esc(ch["span_label"] or ""), ("%g" % round(max(vals), 2)) if vals else "-"))
-        cols.append("<div style='%swidth:calc((100%% - %dpx) / %d);height:100%%;padding:8px'>%s%s%s%s</div>" % (box, 8 * (n - 1), n, head, kp, body, foot))
+        cols.append("<div%s style='%swidth:calc((100%% - %dpx) / %d);height:100%%;padding:8px'>%s%s%s%s</div>" % (tgt("chart:%d" % ci, ch.get("explain")), box, 8 * (n - 1), n, head, kp, body, foot))
     row = "<div style='display:flex;gap:8px;height:%d%%;margin-top:2%%'>%s</div>" % (chart_pct, "".join(cols))
 
-    return ("<div style='box-sizing:border-box;height:100%%;padding:12px 14px;border:%s;border-radius:%s;box-shadow:%s;background:%s;"
-            "font-family:Inter,sans-serif;color:%s'>%s%s</div>" % (c["border"], c["radius"], c["glow"], c["card_bg"], c["text"], top, row))
+    return ("<div data-wl-data='%s' style='box-sizing:border-box;height:100%%;padding:12px 14px;border:%s;border-radius:%s;box-shadow:%s;background:%s;"
+            "font-family:Inter,sans-serif;color:%s'>%s%s%s%s</div>"
+            % (payload_attr(sp), c["border"], c["radius"], c["glow"], c["card_bg"], c["text"], WL_CSS, boot_html(), top, row))
 
 def first_sample_age(project, series):
     """Seconds since this series' first Prometheus sample, or None. Tiered subqueries (fine resolution first) because a fixed 5y range

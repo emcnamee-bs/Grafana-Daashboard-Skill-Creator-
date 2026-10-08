@@ -125,3 +125,77 @@ class NewFields(unittest.TestCase):
         self.assertEqual(len(sp["summary"]), 240)
         self.assertEqual(len(sp["stats"][0]["explain"]), 200)
         self.assertEqual(len(sp["stats"][0]["detail"]["why"]), 240)
+
+
+def payload_of(page):
+    m = re.search(r"data-wl-data='([^']*)'", page)
+    assert m, "no data-wl-data attribute"
+    return json.loads(html.unescape(m.group(1)))
+
+
+class TileMarkup(unittest.TestCase):
+    def sp(self, **kw):
+        d = {"project": "demo", "name": "Demo", "summary": "A demo tile",
+             "stats": [{"label": "Containers", "value": "5", "explain": "Docker containers running",
+                        "detail": {"why": "4 of 5 healthy", "items": [{"name": "grafana", "state": "up", "what": "dashboards"}]}}],
+             "health": [{"name": "API", "state": "up", "explain": "health endpoint answers"}],
+             "charts": [{"title": "Errors", "points": [[1, 0], [2, 3]], "explain": "Failed runs per bucket",
+                         "kpis": [{"label": "ERR 7D", "value": "1%", "explain": "seven day error rate"}]}]}
+        d.update(kw)
+        return app.validate(d)
+
+    def test_every_clickable_box_has_a_target(self):
+        page = app.tile_v2_html(self.sp())
+        for t in ("square", "stat:0", "health:0", "chart:0", "kpi:0:0"):
+            self.assertIn("data-wl='%s'" % t, page)
+            self.assertIn("wallOpen(this,'%s')" % t, page)
+        self.assertIn("click for details", page)
+        self.assertIn("Docker containers running", page)       # explain becomes the hover tip
+
+    def test_hover_css_lights_only_the_innermost_box(self):
+        page = app.tile_v2_html(self.sp())
+        self.assertIn(".wl-t:hover", page)
+        self.assertIn(":has(.wl-t:hover)", page)
+
+    def test_bootstrap_loads_the_viewer_once(self):
+        page = app.tile_v2_html(self.sp())
+        self.assertIn("if(!window.wallOpen)", page)
+        self.assertIn(":8088/wall/viewer.js", page)
+
+    def test_payload_round_trips(self):
+        p = payload_of(app.tile_v2_html(self.sp()))
+        self.assertEqual(p["name"], "Demo")
+        self.assertEqual(p["summary"], "A demo tile")
+        self.assertEqual(p["stats"][0]["detail"]["items"][0]["name"], "grafana")
+        self.assertEqual(p["charts"][0]["kpis"][0]["explain"], "seven day error rate")
+        self.assertEqual(p["colors"]["accent"], app.CONFIG["accent"])
+        self.assertEqual(p["charts"][0]["points"], [[1.0, 0.0], [2.0, 3.0]])
+
+    def test_hostile_text_stays_inert(self):
+        bad = "\"'><img src=x onerror=alert(1)></style><script>alert(2)</script>"
+        page = app.tile_v2_html(self.sp(name=bad, summary=bad))
+        self.assertNotIn("<script>alert", page)
+        self.assertNotIn("<img src=x", page)
+        self.assertNotIn("</style><script", page)
+        self.assertEqual(payload_of(page)["summary"], bad[:240])     # intact inside the attribute
+
+    def test_old_spec_still_renders(self):
+        old = app.validate({"project": "old", "charts": [{"title": "T", "points": [[1, 1]]}], "stats": [{"label": "A", "value": "1"}],
+                            "health": [{"name": "X", "state": "up"}]})
+        page = app.tile_v2_html(old)
+        self.assertIn("data-wl='square'", page)
+        self.assertIsNone(payload_of(page)["stats"][0]["explain"])
+
+    def test_oversize_payload_is_rejected(self):
+        old = app.MAX_PAYLOAD
+        app.MAX_PAYLOAD = 200
+        try:
+            with self.assertRaisesRegex(ValueError, "tile detail too large"):
+                app.tile_v2_html(self.sp())
+        finally:
+            app.MAX_PAYLOAD = old
+
+    def test_render_tile_uses_the_interactive_template(self):
+        panels, lay = app.render_tile(1, 0, self.sp())
+        self.assertIn("wl-t", panels[0]["options"]["content"])
+        self.assertEqual(lay["template"], "v2")
