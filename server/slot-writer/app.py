@@ -31,12 +31,15 @@ CONFIG = {
     "activity_colors": {"active": "#4da3ff", "idle": "#6e7681", "stalled": "#d29922"},
     "span_map": {"1h": "1h", "6h": "6h", "24h": "24h", "7d": "7d", "30d": "30d", "90d": "90d", "all": "5y"},
     "units": ["none", "short", "percent", "percentunit", "currencyUSD", "bytes", "s", "ms", "ops", "reqps"],
+    "viewer_port": 8088,                      # slot-writer's own port: the tile bootstrap loads /wall/viewer.js from it
 }
 # ---------------------------------------------------------------------------------
 
 TOKEN = os.environ["GRAFANA_TOKEN"]
 KEY = os.environ["WALL_KEY"]
 LOCK = threading.Lock()
+MAX_BODY = 262144          # request body cap: a tile may now carry chart history and detail lists
+MAX_PAYLOAD = 120000       # cap on the JSON embedded in one tile (see tile_payload)
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 SNAME = re.compile(r"^[A-Za-z0-9_.-]{1,40}$")
 TAG = re.compile(r"^wall:s(\d\d):(.+)$")
@@ -82,6 +85,62 @@ def _num(v, field):
     return float(v)
 
 
+def _points(pts, field, maxn):
+    """[[t, v], ...] or [{"t":..,"v":..}, ...] -> [(t, v), ...] as floats; ValueError names the field."""
+    if not isinstance(pts, list) or len(pts) > maxn:
+        raise ValueError("%s: list of at most %d points" % (field, maxn))
+    out = []
+    for p in pts:
+        t, v = (p.get("t"), p.get("v")) if isinstance(p, dict) else (p[0], p[1]) if isinstance(p, (list, tuple)) and len(p) == 2 else (None, None)
+        out.append((_num(t, field + ".t"), _num(v, field + ".v")))
+    return out
+
+
+def _detail(d, field):
+    """Optional drill-down for a stat or health light: {"why": text, "items": [{name, state, what}]}; None when empty."""
+    if d is None:
+        return None
+    if not isinstance(d, dict):
+        raise ValueError("%s must be an object" % field)
+    items = d.get("items") or []
+    if not isinstance(items, list) or len(items) > 12:
+        raise ValueError("%s.items: list of at most 12 entries" % field)
+    out_items = []
+    for it in items:
+        if not isinstance(it, dict):
+            raise ValueError("%s.items entries must be objects" % field)
+        st = _s(it.get("state"), field + ".items.state", 10) or "unknown"
+        if st not in CONFIG["health_colors"]:
+            raise ValueError("%s.items.state must be one of %s" % (field, sorted(CONFIG["health_colors"])))
+        out_items.append({"name": _s(it.get("name"), field + ".items.name", 24, True), "state": st, "what": _s(it.get("what"), field + ".items.what", 120)})
+    why = _s(d.get("why"), field + ".why", 240)
+    if not why and not out_items:
+        return None
+    return {"why": why, "items": out_items}
+
+
+def _breakdown(b, field):
+    """Optional chart numbers a hook precomputed: {ok_pct, err_pct, total, worst: [{label, value}]}."""
+    if b is None:
+        return None
+    if not isinstance(b, dict):
+        raise ValueError("%s must be an object" % field)
+    out = {}
+    for k in ("ok_pct", "err_pct"):
+        if b.get(k) is not None:
+            v = _num(b[k], "%s.%s" % (field, k))
+            if not 0 <= v <= 100:
+                raise ValueError("%s.%s must be between 0 and 100" % (field, k))
+            out[k] = v
+    if b.get("total") is not None:
+        out["total"] = _num(b["total"], field + ".total")
+    worst = b.get("worst") or []
+    if not isinstance(worst, list) or len(worst) > 5 or not all(isinstance(w, dict) for w in worst):
+        raise ValueError("%s.worst: list of at most 5 objects" % field)
+    out["worst"] = [{"label": _s(w.get("label"), field + ".worst.label", 24, True), "value": _s(w.get("value"), field + ".worst.value", 12, True)} for w in worst]
+    return out
+
+
 def validate(spec):
     if not isinstance(spec, dict):
         raise ValueError("body must be a JSON object")
@@ -100,6 +159,7 @@ def validate(spec):
     if out["activity"]["state"] not in CONFIG["activity_colors"]:
         raise ValueError("activity.state must be one of %s" % sorted(CONFIG["activity_colors"]))
     out["task"] = _s(spec.get("task"), "task", 90)
+    out["summary"] = _s(spec.get("summary"), "summary", 240)
     t = spec.get("tests")
     if t:
         p, f = int(_num(t.get("passed", 0), "tests.passed")), int(_num(t.get("failed", 0), "tests.failed"))
@@ -113,12 +173,14 @@ def validate(spec):
         st = _s(h.get("state"), "health.state", 10) or "unknown"
         if st not in CONFIG["health_colors"]:
             raise ValueError("health.state must be one of %s" % sorted(CONFIG["health_colors"]))
-        out["health"].append({"name": _s(h.get("name"), "health.name", 18, True), "state": st})
+        out["health"].append({"name": _s(h.get("name"), "health.name", 18, True), "state": st,
+                              "explain": _s(h.get("explain"), "health.explain", 200), "detail": _detail(h.get("detail"), "health.detail")})
     sl = spec.get("stats") or []
     if len(sl) > 6:
         raise ValueError("stats: max 6 entries")
     out["stats"] = [{"label": _s(x.get("label"), "stats.label", 16, True), "value": _s(x.get("value"), "stats.value", 12, True),
-                     "trend": _s(x.get("trend"), "stats.trend", 5) if _s(x.get("trend"), "stats.trend", 5) in ("up", "down", "flat") else None}
+                     "trend": _s(x.get("trend"), "stats.trend", 5) if _s(x.get("trend"), "stats.trend", 5) in ("up", "down", "flat") else None,
+                     "explain": _s(x.get("explain"), "stats.explain", 200), "detail": _detail(x.get("detail"), "stats.detail")}
                     for x in sl]
     cl = spec.get("charts") or []
     if len(cl) > 4:
@@ -128,12 +190,7 @@ def validate(spec):
         pts = c.get("points")
         if pts is not None:
             # points chart (template v2): data travels with the spec as [[t, v], ...] or [{"t":..,"v":..}, ...]
-            if not isinstance(pts, list) or len(pts) > 200:
-                raise ValueError("charts.points: list of at most 200 points")
-            norm = []
-            for p in pts:
-                t, v = (p.get("t"), p.get("v")) if isinstance(p, dict) else (p[0], p[1]) if isinstance(p, (list, tuple)) and len(p) == 2 else (None, None)
-                norm.append((_num(t, "charts.points.t"), _num(v, "charts.points.v")))
+            norm = _points(pts, "charts.points", 200)
             kind = _s(c.get("kind"), "charts.kind", 6) or "line"
             if kind not in ("line", "bar"):
                 raise ValueError("points charts: kind in line|bar")
@@ -145,13 +202,18 @@ def validate(spec):
                 stt = _s(k.get("state"), "charts.kpis.state", 5)
                 if stt and stt not in ("ok", "warn", "bad"):
                     raise ValueError("charts.kpis.state must be ok|warn|bad")
-                kpis.append({"label": _s(k.get("label"), "charts.kpis.label", 12, True), "value": _s(k.get("value"), "charts.kpis.value", 10, True), "state": stt})
+                kpis.append({"label": _s(k.get("label"), "charts.kpis.label", 12, True), "value": _s(k.get("value"), "charts.kpis.value", 10, True), "state": stt,
+                             "explain": _s(k.get("explain"), "charts.kpis.explain", 200)})
             title = _s(c.get("title"), "charts.title", 22, True)
             y_max = _num(c["y_max"], "charts.y_max") if c.get("y_max") is not None else None
             if y_max is not None and not (0 < y_max <= 1e6):
                 raise ValueError("charts.y_max must be between 0 and 1000000")
             out["charts"].append({"title": title, "points": norm, "kind": kind, "kpis": kpis, "y_max": y_max, "span_label": _s(c.get("span_label"), "charts.span_label", 8) or "",
-                                  "subtitle": _s(c.get("subtitle"), "charts.subtitle", 26) or "", "series": None, "share": 1.0})
+                                  "subtitle": _s(c.get("subtitle"), "charts.subtitle", 26) or "", "series": None, "share": 1.0,
+                                  "explain": _s(c.get("explain"), "charts.explain", 200),
+                                  "history": _points(c["history"], "charts.history", 400) if c.get("history") is not None else None,
+                                  "history_label": _s(c.get("history_label"), "charts.history_label", 8) or "",
+                                  "breakdown": _breakdown(c.get("breakdown"), "charts.breakdown")})
             continue
         series = _s(c.get("series"), "charts.series", 40, True)
         if not SNAME.match(series):
@@ -163,7 +225,8 @@ def validate(spec):
             raise ValueError("charts: kind in line|bar|stat, span in %s, unit in %s" % (sorted(CONFIG["span_map"]), CONFIG["units"]))
         share = _num(c.get("share", 1), "charts.share")
         out["charts"].append({"title": _s(c.get("title"), "charts.title", 30) or series, "series": series, "kind": kind,
-                              "span": span, "unit": unit, "share": min(max(share, 0.25), 4.0), "points": None})
+                              "span": span, "unit": unit, "share": min(max(share, 0.25), 4.0), "points": None,
+                              "explain": None, "history": None, "history_label": "", "breakdown": None})
     if out["charts"] and len({ch.get("points") is not None for ch in out["charts"]}) > 1:
         raise ValueError("charts: do not mix points charts (inline data) with series charts (live Prometheus)")
     ser = spec.get("series") or {}
@@ -721,8 +784,8 @@ class H(BaseHTTPRequestHandler):
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > 65536:
-            raise ValueError("body too large (64KB max)")
+        if n > MAX_BODY:
+            raise ValueError("body too large (%dKB max)" % (MAX_BODY // 1024))
         try:
             return json.loads(self.rfile.read(n) or b"{}")
         except json.JSONDecodeError:
