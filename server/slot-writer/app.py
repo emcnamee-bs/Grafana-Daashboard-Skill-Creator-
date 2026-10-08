@@ -147,7 +147,10 @@ def validate(spec):
                     raise ValueError("charts.kpis.state must be ok|warn|bad")
                 kpis.append({"label": _s(k.get("label"), "charts.kpis.label", 12, True), "value": _s(k.get("value"), "charts.kpis.value", 10, True), "state": stt})
             title = _s(c.get("title"), "charts.title", 22, True)
-            out["charts"].append({"title": title, "points": norm, "kind": kind, "kpis": kpis, "span_label": _s(c.get("span_label"), "charts.span_label", 8) or "",
+            y_max = _num(c["y_max"], "charts.y_max") if c.get("y_max") is not None else None
+            if y_max is not None and not (0 < y_max <= 1e6):
+                raise ValueError("charts.y_max must be between 0 and 1000000")
+            out["charts"].append({"title": title, "points": norm, "kind": kind, "kpis": kpis, "y_max": y_max, "span_label": _s(c.get("span_label"), "charts.span_label", 8) or "",
                                   "subtitle": _s(c.get("subtitle"), "charts.subtitle", 26) or "", "series": None, "share": 1.0})
             continue
         series = _s(c.get("series"), "charts.series", 40, True)
@@ -273,18 +276,30 @@ TILE_PX = 443          # CSS px of usable card height inside a 13-unit slot (mea
 CARD_INNER_PX = 520    # usable CSS px width inside the card at the wall's 95% frame
 
 
-def spark_img(points, kind, w, h):
-    """Chart as a base64 SVG <img>: Grafana's text panel strips inline <svg> and utf8 data URIs but keeps base64 image data URIs."""
+def nice_max(v):
+    for n in (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 100000, 1000000):
+        if v <= n:
+            return n
+    return int(math.ceil(v))
+
+
+def spark_img(points, kind, w, h, y_max=None):
+    """Chart as a base64 SVG <img> (Grafana's text panel strips inline <svg> and utf8 data URIs but keeps base64 image data URIs).
+    Returns (data_uri, y_axis_max). y_max fixes the top of the axis; data above it makes the axis grow to a clean higher value so a bar is never clipped."""
     vals = [p[1] for p in points]
     if not vals:
-        return None
-    n = len(vals); ymax = max(max(vals), 1.0) * 1.15; pad = 4
+        return None, (y_max or 1)
+    top = max(vals)
+    ymax = nice_max(top * 1.05) if y_max is None else (y_max if top <= y_max else nice_max(top))
+    n = len(vals); pad = 4
     X = lambda i: pad + (w - 2 * pad) * (i / (n - 1 if n > 1 else 1))
-    Y = lambda v: h - pad - (h - 2 * pad) * (v / ymax)
-    grid = "".join("<line x1='0' x2='%d' y1='%.1f' y2='%.1f' stroke='#1d3050' stroke-width='1'/>" % (w, Y(ymax * f), Y(ymax * f)) for f in (.25, .5, .75))
+    Y = lambda v: h - pad - (h - 2 * pad) * (min(v, ymax) / float(ymax))
+    grid = "".join("<line x1='0' x2='%d' y1='%.1f' y2='%.1f' stroke='#1d3050' stroke-width='1'/>" % (w, Y(ymax * f), Y(ymax * f)) for f in (0.5, 1.0))
     if kind == "bar":
-        bw = max((w - 2 * pad) / n * 0.7, 1.5)
-        body = "".join("<rect x='%.1f' y='%.1f' width='%.1f' height='%.1f' fill='#4da3ff'/>" % (X(i) - bw / 2, Y(v), bw, max(h - pad - Y(v), 0)) for i, v in enumerate(vals))
+        slot_w = (w - 2 * pad) / float(n)
+        bw = max(slot_w * 0.7, 1.5)
+        body = "".join("<rect x='%.1f' y='%.1f' width='%.1f' height='%.1f' fill='#4da3ff'/>" % (pad + slot_w * (i + 0.5) - bw / 2, Y(v), bw, max(h - pad - Y(v), 0)) for i, v in enumerate(vals) if v > 0)
+        body += "<line x1='0' x2='%d' y1='%.1f' y2='%.1f' stroke='#2a4a7a' stroke-width='1'/>" % (w, h - pad, h - pad)
     else:
         line = " ".join("%.1f,%.1f" % (X(i), Y(v)) for i, v in enumerate(vals))
         area = "%.1f,%.1f %s %.1f,%.1f" % (X(0), h - pad, line, X(n - 1), h - pad)
@@ -293,8 +308,7 @@ def spark_img(points, kind, w, h):
                 "<polygon points='%s' fill='url(#a)'/><polyline points='%s' fill='none' stroke='#4da3ff' stroke-width='2' stroke-linejoin='round'/>"
                 "<circle cx='%.1f' cy='%.1f' r='3' fill='#fff'/>") % (area, line, X(n - 1), Y(vals[-1]))
     svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 %d %d' width='%d' height='%d'>%s%s</svg>" % (w, h, w, h, grid, body)
-    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
-
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode(), ymax
 
 def tile_v2_html(sp):
     """Fixed template: a top bar (name, status, git branch, activity, quick stats, key-part health, current task) over a landscape row of
@@ -349,8 +363,8 @@ def tile_v2_html(sp):
     for ch in charts:
         has_k = bool(ch["kpis"])
         img_h = max(int(chart_px - 16 - 2 - 34 - (40 if has_k else 0) - 18 - 14), 50)
-        img_w = max(int(box_w - 18), 80)
-        img = spark_img(ch["points"], ch["kind"], img_w, img_h)
+        img_w = max(int(box_w - 18 - 20), 60)          # 20px left for the y-axis labels
+        img, ymax = spark_img(ch["points"], ch["kind"], img_w, img_h, ch.get("y_max"))
         vals = [p[1] for p in ch["points"]]
         head = ("<div style='font-size:13px;font-weight:700;letter-spacing:.06em'>%s</div>"
                 "<div style='font-size:10px;color:%s;min-height:12px'>%s</div>" % (esc(ch["title"].upper()), muted, esc(ch["subtitle"])))
@@ -360,7 +374,9 @@ def tile_v2_html(sp):
                 "<div style='%swidth:calc((100%% - 6px) / 2);padding:2px 7px'><div style='font-size:10px;letter-spacing:.1em;color:%s'>%s</div>"
                 "<div style='font-size:16px;font-weight:700;color:%s'>%s</div></div>"
                 % (box, muted, esc(k["label"].upper()), state_col.get(k["state"], c["text"]), esc(k["value"])) for k in ch["kpis"]) + "</div>"
-        body = ("<img src='%s' style='display:block;width:100%%;height:%dpx'>" % (img, img_h)) if img else \
+        axis = ("<div style='display:flex;gap:4px'><div style='width:16px;height:%dpx;display:flex;flex-direction:column;justify-content:space-between;text-align:right;font-size:10px;color:%s'>"
+                "<span>%g</span><span>%g</span><span>0</span></div><img src='%s' style='display:block;width:calc(100%% - 20px);height:%dpx'></div>" % (img_h, muted, ymax, ymax / 2.0, img, img_h)) if img else None
+        body = axis if img else \
                ("<div style='height:%dpx;color:%s;font-size:13px;text-align:center;padding-top:%dpx'>no data</div>" % (img_h, muted, img_h // 2 - 8))
         foot = ("<div style='display:flex;justify-content:space-between;font-size:10px;color:%s;margin-top:2px'><span>-%s</span><span>max %s</span><span>now</span></div>"
                 % (muted, esc(ch["span_label"] or ""), ("%g" % round(max(vals), 2)) if vals else "-"))

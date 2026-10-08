@@ -27,6 +27,7 @@ JSON sent to `POST /snapshot` (via `wall.ps1 snapshot -File tile.json`, or produ
 ```
 - `points`: up to 200 `[epoch_seconds, value]` pairs (or `{"t":..,"v":..}` objects). Use ~24-60 points on clean time buckets.
 - `kind`: `line` (default) or `bar`. `title` ≤22, `subtitle` ≤26, `span_label` ≤8 (shows as `-12h` at the left of the footer; the footer also shows the max and `now`).
+- `y_max` (optional number): fixes the top of the y-axis; the left axis shows `y_max`, half of it, and `0`, with gridlines at the top and middle. Use it when the viewer should read a fixed scale (e.g. `10` errors per bucket). If a point exceeds it the axis grows to the next clean value so nothing is clipped. Without it the axis auto-fits to a clean value (1, 2, 5, 10, 20, 50, ...).
 - `kpis`: up to 2 chips per chart: `label` ≤12, `value` ≤10, optional `state` `ok`/`warn`/`bad` (colours the value).
 - 2-3 charts are laid side by side in one landscape row at equal width; do not mix points charts and series charts in one tile.
 
