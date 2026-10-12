@@ -40,6 +40,15 @@ function Get-ContainerState($status) {
   if ($status -match '^Up') { return 'up' }
   'unknown'
 }
+# the 'Canary relay' light: the container's docker status plus the relay's own answer to "can you reach your data source?"
+# ('true', 'false', or '' when it could not be read). 'up' needs both; a running relay that cannot reach its source is 'degraded'.
+function Get-RelayState($status, $upstream) {
+  if (-not $status) { return 'down' }                       # no such container
+  $c = Get-ContainerState $status
+  if ($c -ne 'up') { return $c }                            # down / degraded / unknown, straight from docker's status
+  if ($upstream -eq 'true') { return 'up' }
+  'degraded'                                                # running, but cannot reach its source or its answer was unreadable
+}
 # a health light with its hover/full-screen explanation; `why` (what is wrong right now) is attached only when the light is not up
 function New-Light($name, $state, $explain, $why) {
   $l = [ordered]@{ name = $name; state = $state; explain = $explain }
@@ -65,18 +74,17 @@ $diskFree = [math]::Round([double](Invoke-Prom '/api/v1/query' @{ query = "node_
 
 # ---- router / uplink (one ssh, one script on stdin)
 $probe = @'
-W=eno1; F=wlp1s0
+W=eno1
 lossof() { ping -c2 -W1 -q "$@" 2>/dev/null | sed -n 's/.* \([0-9.]*\)% packet loss.*/\1/p' | head -1; }
 WGW=$(ip -4 route show default dev $W 2>/dev/null | awk '{print $3; exit}')
-FGW=$(ip -4 route show default dev $F 2>/dev/null | awk '{print $3; exit}')
 echo "ACTIVE_DEV=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -1)"
 echo "ETH_CARRIER=$(cat /sys/class/net/$W/carrier 2>/dev/null || echo 0)"
 echo "WIRED_GW=${WGW:-}"
 echo "WIRED_LOSS=$([ -n "$WGW" ] && lossof "$WGW" || echo 100)"
 echo "WIRED_MAC=$([ -n "$WGW" ] && ip neigh show "$WGW" dev $W 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="lladdr") print tolower($(i+1))}' | head -1)"
-echo "WIFI_GW=${FGW:-}"
-echo "WIFI_LOSS=$([ -n "$FGW" ] && lossof -I $F "$FGW" || echo 100)"
 echo "NET_LOSS=$(lossof 1.1.1.1)"
+echo "RELAY_STATUS=$(docker ps -a --filter name='^/canary-relay$' --format '{{.Status}}' 2>/dev/null | head -1)"
+echo "RELAY_UPSTREAM=$(docker exec canary-relay python -c "import json,urllib.request;print(str(json.load(urllib.request.urlopen('http://127.0.0.1:8091/healthz',timeout=4)).get('upstream_reachable')).lower())" 2>/dev/null)"
 echo "CONTAINERS=$(docker ps -q --filter label=com.docker.compose.project=monitoring 2>/dev/null | wc -l)"
 echo "CONTAINER_LIST=$(docker ps -a --filter label=com.docker.compose.project=monitoring --format '{{.Names}}|{{.Status}}' 2>/dev/null | tr '\n' ';')"
 echo "UPTIME_S=$(cut -d. -f1 /proc/uptime)"
@@ -96,13 +104,17 @@ try {
 $health = @()
 $status = 'ok'; $label = 'ALL GREEN'; $uplink = '?'; $task = 'Router status unknown (ssh probe failed)'; $up = ''; $cont = '?'
 $items = @(); $okc = 0
-$exWired = 'The wired gateway answers ping and carries the default route.'; $exNet = 'Pings to 1.1.1.1 arrive with no packet loss.'; $exWifi = 'The backup Wi-Fi link answers ping.'
+$exWired = 'The wired gateway answers ping and carries the default route.'; $exNet = 'Pings to 1.1.1.1 arrive with no packet loss.'; $exRelay = 'The read-only relay that feeds one of the wall tiles is running, healthy and can reach its data source.'
 if ($routerKnown) {
   $num = { param($k) [double]::Parse(('0' + $net[$k]).Replace(',', '.'), $inv) }
   $wired = if ($net.ETH_CARRIER -ne '1' -or -not $net.WIRED_GW -or (& $num 'WIRED_LOSS') -ge 100) { 'down' }
            elseif ($net.ACTIVE_DEV -ne 'eno1' -or (& $num 'WIRED_LOSS') -gt 0) { 'degraded' } else { 'up' }
   $netS = if ((& $num 'NET_LOSS') -ge 100) { 'down' } elseif ((& $num 'NET_LOSS') -gt 0) { 'degraded' } else { 'up' }
-  $wifi = if (-not $net.WIFI_GW -or (& $num 'WIFI_LOSS') -ge 100) { 'down' } elseif ((& $num 'WIFI_LOSS') -gt 0) { 'degraded' } else { 'up' }
+  $relay = Get-RelayState $net.RELAY_STATUS $net.RELAY_UPSTREAM
+  $relayWhy = if (-not $net.RELAY_STATUS) { 'The relay container does not exist.' }
+              elseif ($relay -eq 'down') { 'The relay container is not running.' }
+              elseif ($net.RELAY_UPSTREAM -eq 'false') { 'The relay is running but cannot reach its data source.' }
+              else { 'The relay is starting, unhealthy, or its health answer could not be read.' }
   $isGl = ($net.WIRED_MAC -like "$GL_OUI*")
   $gwName = if ($isGl) { 'GL.iNet' } else { 'wired gateway' }
   $uplink = if ($net.ACTIVE_DEV -eq 'eno1') { if ($isGl) { 'GL.iNet' } else { 'Wired' } } else { 'Wi-Fi' }
@@ -123,10 +135,10 @@ if ($routerKnown) {
               elseif ($net.ACTIVE_DEV -ne 'eno1') { 'Traffic is using the Wi-Fi backup instead of the wired link.' } else { 'Pings to the wired gateway are dropping packets.' }
   $health += (New-Light 'Travel router' $wired $exWired $wiredWhy),
              (New-Light 'Internet' $netS $exNet $(if ($netS -eq 'down') { 'Every ping to 1.1.1.1 was lost.' } else { 'Some pings to 1.1.1.1 were lost.' })),
-             (New-Light 'Wi-Fi backup' $wifi $exWifi $(if ($wifi -eq 'down') { 'The Wi-Fi gateway does not answer ping (or there is no Wi-Fi route).' } else { 'Some pings over Wi-Fi were lost.' }))
+             (New-Light 'Canary relay' $relay $exRelay $relayWhy)
 } else {
   $noProbe = 'The ssh probe to mini-mac failed, so this could not be checked.'
-  $health += (New-Light 'Travel router' 'unknown' $exWired $noProbe), (New-Light 'Internet' 'unknown' $exNet $noProbe), (New-Light 'Wi-Fi backup' 'unknown' $exWifi $noProbe)
+  $health += (New-Light 'Travel router' 'unknown' $exWired $noProbe), (New-Light 'Internet' 'unknown' $exNet $noProbe), (New-Light 'Canary relay' 'unknown' $exRelay $noProbe)
 }
 $noAnswer = 'The health endpoint did not answer.'
 $health += (New-Light 'Grafana' (St (Test-Url "http://${Host_}:3000/api/health")) 'Grafana health endpoint answers (draws the wall dashboards).' $noAnswer),
