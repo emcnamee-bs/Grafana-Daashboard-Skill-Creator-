@@ -28,5 +28,9 @@ foreach ($c in $cases) {
   $label = "'{0}' / '{1}'" -f $c[0], $c[1]
   if ($got -eq $c[2]) { 'PASS  {0,-52} -> {1}' -f $label, $got } else { $bad++; 'FAIL  {0,-52} -> {1} (wanted {2})' -f $label, $got, $c[2] }
 }
-"{0}/{1} passed" -f ($cases.Count - $bad), $cases.Count
+# mini-mac no longer uses Wi-Fi (it caused a network loop through the switch), so the hook must not mention it any more.
+$wifiHits = @(Select-String -Path (Join-Path $PSScriptRoot 'refresh.ps1') -Pattern 'wi-fi|wifi|wlp1s0')
+if ($wifiHits.Count -eq 0) { 'PASS  refresh.ps1 has no Wi-Fi references' } else { $bad++; $wifiHits | ForEach-Object { 'FAIL  Wi-Fi reference at line {0}: {1}' -f $_.LineNumber, $_.Line.Trim().Substring(0, [Math]::Min(90, $_.Line.Trim().Length)) } }
+$total = $cases.Count + 1
+"{0}/{1} passed" -f ($total - $bad), $total
 if ($bad) { exit 1 }

@@ -117,8 +117,8 @@ if ($routerKnown) {
               else { 'The relay is starting, unhealthy, or its health answer could not be read.' }
   $isGl = ($net.WIRED_MAC -like "$GL_OUI*")
   $gwName = if ($isGl) { 'GL.iNet' } else { 'wired gateway' }
-  $uplink = if ($net.ACTIVE_DEV -eq 'eno1') { if ($isGl) { 'GL.iNet' } else { 'Wired' } } else { 'Wi-Fi' }
-  $task = if ($net.ACTIVE_DEV -eq 'eno1') { "Running via $gwName travel router (wired)" } else { 'On Wi-Fi backup - travel router not in path' }
+  $uplink = if ($net.ACTIVE_DEV -eq 'eno1') { if ($isGl) { 'GL.iNet' } else { 'Wired' } } else { 'Not wired' }
+  $task = if ($net.ACTIVE_DEV -eq 'eno1') { "Running via $gwName travel router (wired)" } else { 'Not on the wired link - travel router not in path' }
   $cont = $net.CONTAINERS
   # what each known container does (unknown ones are listed without a purpose); states come from docker's own status text, never its ticking uptime
   $purpose = @{ grafana = 'Dashboards: draws the wall'; prometheus = 'Metrics database (5-year retention)'; pushgateway = 'Receives pushed wall series'
@@ -132,7 +132,7 @@ if ($routerKnown) {
   $up = if ($d -gt 0) { "${d}d ${h}h" } else { "${h}h" }
   $wiredWhy = if ($net.ETH_CARRIER -ne '1') { 'The Ethernet link is down.' } elseif (-not $net.WIRED_GW) { 'There is no wired default route.' }
               elseif ((& $num 'WIRED_LOSS') -ge 100) { 'The wired gateway does not answer ping.' }
-              elseif ($net.ACTIVE_DEV -ne 'eno1') { 'Traffic is using the Wi-Fi backup instead of the wired link.' } else { 'Pings to the wired gateway are dropping packets.' }
+              elseif ($net.ACTIVE_DEV -ne 'eno1') { 'Traffic is not using the wired link.' } else { 'Pings to the wired gateway are dropping packets.' }
   $health += (New-Light 'Travel router' $wired $exWired $wiredWhy),
              (New-Light 'Internet' $netS $exNet $(if ($netS -eq 'down') { 'Every ping to 1.1.1.1 was lost.' } else { 'Some pings to 1.1.1.1 were lost.' })),
              (New-Light 'Canary relay' $relay $exRelay $relayWhy)
@@ -148,12 +148,12 @@ $health += (New-Light 'Grafana' (St (Test-Url "http://${Host_}:3000/api/health")
 
 $bad = @($health | Where-Object { $_.state -eq 'down' }); $odd = @($health | Where-Object { $_.state -in 'degraded', 'unknown' })
 if ($routerKnown -and ($health | Where-Object { $_.name -eq 'Internet' }).state -eq 'down') { $status = 'fail'; $label = 'NO INTERNET' }
-elseif ($routerKnown -and $net.ACTIVE_DEV -ne 'eno1') { $status = 'warn'; $label = 'ON WI-FI' }
+elseif ($routerKnown -and $net.ACTIVE_DEV -ne 'eno1') { $status = 'warn'; $label = 'OFF WIRED' }
 elseif (-not $routerKnown) { $status = 'warn'; $label = 'NO ROUTER DATA' }
 elseif ($bad.Count -gt 0) { $status = 'warn'; $label = "$($bad.Count) DOWN" }
 elseif ($odd.Count -gt 0) { $status = 'warn'; $label = "$($odd.Count) DEGRADED" }
 
-$stats = @(@{ label = 'UPLINK'; value = $uplink; explain = 'Which link carries mini-mac traffic: the wired travel router or the Wi-Fi backup.' },
+$stats = @(@{ label = 'UPLINK'; value = $uplink; explain = 'Which link carries mini-mac traffic: the wired travel router.' },
            @{ label = 'Disk free'; value = "$diskFree%"; explain = 'Free space on the root disk.' })
 if ($up) { $stats += @{ label = 'Uptime'; value = $up; explain = 'Time since the host last booted.' } }
 $cstat = @{ label = 'Containers'; value = $cont; explain = 'Running containers of the monitoring stack on mini-mac (the full-screen view also lists any that have stopped).' }
